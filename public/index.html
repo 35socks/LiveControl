@@ -59,19 +59,6 @@
     </div>
   </div>
 
-  <!-- Plugin settings modal -->
-  <div id="plugin-modal" class="modal hidden">
-    <div class="modal-backdrop"></div>
-    <div class="modal-card plugin-card">
-      <p class="modal-title">Plugin Settings</p>
-      <p class="modal-song-name" id="plugin-modal-track-name"></p>
-      <div id="plugin-devices" class="plugin-devices"></div>
-      <div class="modal-actions">
-        <button class="btn-primary" id="plugin-close">Done</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Countdown overlay -->
   <div id="countdown-overlay" class="countdown-overlay hidden">
     <div id="countdown-number" class="countdown-number">1</div>
@@ -86,12 +73,34 @@
     <header class="header">
       <div class="header-left">
         <div class="logo">LC</div>
-        <div class="project-name" id="project-name">LiveControl</div>
+        <div class="header-title">LiveControl</div>
       </div>
       <div class="header-right">
-        <div class="conn-dot" id="conn-dot"></div>
+        <button class="theme-btn" id="theme-btn" title="Change theme" aria-label="Change theme">
+          <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20c1.1 0 2-.9 2-2 0-.52-.2-.99-.53-1.34-.32-.34-.52-.8-.52-1.31 0-1.1.9-2 2-2H17a5 5 0 0 0 5-5c0-4.42-4.03-8-10-8zM7.5 12a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4A1.5 1.5 0 1 1 10.5 5a1.5 1.5 0 0 1 0 3zm5 0A1.5 1.5 0 1 1 15.5 5a1.5 1.5 0 0 1 0 3zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg>
+        </button>
+        <div class="conn-status">
+          <div class="conn-dot" id="conn-dot"></div>
+          <span class="conn-label" id="conn-label">Connecting</span>
+        </div>
       </div>
     </header>
+
+    <!-- Theme picker popover -->
+    <div id="theme-menu" class="theme-menu hidden">
+      <button class="theme-option" data-theme="midnight">
+        <span class="theme-swatch theme-swatch--midnight"></span> Midnight
+      </button>
+      <button class="theme-option" data-theme="crimson">
+        <span class="theme-swatch theme-swatch--crimson"></span> Crimson Stage
+      </button>
+      <button class="theme-option" data-theme="tape">
+        <span class="theme-swatch theme-swatch--tape"></span> Tape
+      </button>
+      <button class="theme-option" data-theme="mono">
+        <span class="theme-swatch theme-swatch--mono"></span> Mono
+      </button>
+    </div>
 
     <div class="progress-bar">
       <div class="progress-fill" id="progress-fill"></div>
@@ -105,43 +114,6 @@
       </div>
       <div id="setlist" class="setlist"></div>
     </main>
-
-    <!-- Tab bar -->
-    <nav class="tab-bar">
-      <button class="tab-btn tab-btn--active" data-tab="setlist">
-        <svg viewBox="0 0 24 24"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>
-        <span>Setlist</span>
-      </button>
-      <button class="tab-btn" data-tab="tracks">
-        <svg viewBox="0 0 24 24"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
-        <span>Tracks</span>
-      </button>
-      <button class="tab-btn" data-tab="mixer">
-        <svg viewBox="0 0 24 24"><path d="M3 17v2h6v-2H3zM3 5v2h10V5H3zm10 16v-2h8v-2h-8v-2h-2v6h2zM7 9v2H3v2h4v2h2V9H7zm14 4v-2H11v2h10zm-6-4h2V7h4V5h-4V3h-2v6z"/></svg>
-        <span>Mixer</span>
-      </button>
-    </nav>
-
-    <!-- Tracks panel -->
-    <div id="tracks-panel" class="tracks-panel hidden">
-      <div id="tracks-list" class="tracks-list">
-        <div class="loading-tracks">Loading tracks...</div>
-      </div>
-    </div>
-
-    <!-- Mixer panel -->
-    <div id="mixer-panel" class="mixer-panel hidden">
-      <div class="mixer-toolbar">
-        <span class="mixer-label">SOUND ENGINEER MIXER</span>
-        <button class="mixer-refresh-btn" id="mixer-refresh">
-          <svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
-          Refresh
-        </button>
-      </div>
-      <div id="mixer-channels" class="mixer-channels">
-        <div class="loading-tracks">Loading mixer…</div>
-      </div>
-    </div>
 
     <!-- Bottom transport bar -->
     <div class="bottom-bar">
