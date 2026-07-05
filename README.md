@@ -1,7 +1,6 @@
 # LiveControl
 
-A free, self-hosted AbleSet clone — control Ableton Live from any device on your local network via a browser. No subscriptions, no internet required.
-
+A free, open source app to control Ableton Live from any device on your local network via a browser.
 ## Features
 
 - 🎵 **Setlist from cue points** — automatically parses Ableton locators into a setlist
@@ -158,5 +157,3 @@ Browser (any device on local network)
 - `express` — HTTP server
 - `ws` — WebSocket server
 - Vanilla HTML/CSS/JS frontend (no build step)
-
-**Total cost: $0**
