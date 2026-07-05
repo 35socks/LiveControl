@@ -144,6 +144,9 @@ export class AbletonBridge {
       excluded:        song.excluded,
       sections:        song.sections.map((s) => ({ id: s.id, name: s.name, time: s.time })),
       stopMarkerCount: song.stopMarkers.length,
+      // Present only when a [NEXTMARKER] cue moved the real start point
+      // later than the song's own cue (i.e. skips lead-in silence).
+      introSkip:       song.startCue.time > song.time ? song.startCue.time : null,
     }));
   }
 
@@ -218,7 +221,11 @@ export class AbletonBridge {
   async jumpToSong(songId) {
     const song = this.setlist.find((s) => s.id === songId);
     if (!song?.cueObject) throw new Error("Song not found: " + songId);
-    await song.cueObject.jump();
+    // If a [NEXTMARKER] cue was found inside this song, jump there instead
+    // of the song's own start — skips any lead-in silence before the music
+    // actually begins.
+    const target = song.startCue?.cueObject || song.cueObject;
+    await target.jump();
   }
 
   async jumpToSection(songId, sectionId) {
@@ -227,139 +234,6 @@ export class AbletonBridge {
     const section = song.sections.find((s) => s.id === sectionId);
     if (!section?.cueObject) throw new Error("Section not found: " + sectionId);
     await section.cueObject.jump();
-  }
-
-  /* ── Tracks ──────────────────────────────────────────────────────────────── */
-  /**
-   * Returns tracks using their array INDEX as `id` — avoids the t.raw.id NaN bug.
-   */
-  async getTracks() {
-    const tracks = await this.ableton.song.get("tracks");
-    // Fetch all tracks concurrently instead of one-by-one — with a large
-    // set and many tracks, sequential round-trips over the ableton-js
-    // socket could take several seconds; Promise.all keeps result order
-    // aligned with the original index while running requests in parallel.
-    const results = await Promise.all(
-      tracks.map(async (t, i) => {
-        try {
-          const name  = await t.get("name");
-          const muted = await t.get("mute").catch(() => false);
-          const solo  = await t.get("solo").catch(() => false);
-          // Volume: try track-level first, then mixer_device
-          let volume = null, pan = 0;
-          try { volume = await t.get("volume"); } catch {}
-          if (volume == null) {
-            try {
-              const md = await t.get("mixer_device");
-              volume   = await md.get("volume").catch(() => null);
-            } catch {}
-          }
-          try { pan = await t.get("panning"); } catch {}
-          if (pan == null || pan === 0) {
-            try {
-              const md = await t.get("mixer_device");
-              pan      = await md.get("panning").catch(() => 0);
-            } catch {}
-          }
-          return { id: i, name, muted: !!muted, solo: !!solo,
-                    volume: volume ?? 0.85, pan: pan ?? 0 };
-        } catch {
-          // Safe placeholder so indices stay aligned
-          return { id: i, name: `Track ${i + 1}`,
-                    muted: false, solo: false, volume: 0.85, pan: 0 };
-        }
-      })
-    );
-    return results;
-  }
-
-  async _getTrack(index) {
-    const tracks = await this.ableton.song.get("tracks");
-    const track  = tracks[index];
-    if (!track) throw new Error(`Track index ${index} not found`);
-    return track;
-  }
-
-  async setTrackMute(index, muted) {
-    const t = await this._getTrack(index);
-    await t.set("mute", !!muted);
-  }
-
-  async setTrackSolo(index, solo) {
-    const t = await this._getTrack(index);
-    await t.set("solo", !!solo);
-  }
-
-  async setTrackVolume(index, volume) {
-    const val = parseFloat(volume);
-    if (!Number.isFinite(val)) throw new Error("Invalid volume value");
-    const clamped = Math.min(1, Math.max(0, val));
-    const t = await this._getTrack(index);
-    // Try direct first, then via mixer_device
-    try {
-      await t.set("volume", clamped);
-    } catch {
-      const md = await t.get("mixer_device");
-      await md.set("volume", clamped);
-    }
-  }
-
-  async setTrackPan(index, pan) {
-    const val = parseFloat(pan);
-    if (!Number.isFinite(val)) throw new Error("Invalid pan value");
-    const clamped = Math.min(1, Math.max(-1, val));
-    const t = await this._getTrack(index);
-    try {
-      await t.set("panning", clamped);
-    } catch {
-      const md = await t.get("mixer_device");
-      await md.set("panning", clamped);
-    }
-  }
-
-  /* ── Devices / plugin parameters ─────────────────────────────────────────── */
-  async getTrackDevices(index) {
-    const t = await this._getTrack(index);
-    let devices;
-    try { devices = await t.get("devices"); }
-    catch { return []; }
-
-    const result = await Promise.all(
-      devices.map(async (device, di) => {
-        try {
-          const name   = await device.get("name").catch(() => `Device ${di + 1}`);
-          const params = await device.get("parameters").catch(() => []);
-          const paramList = (await Promise.all(
-            params.map(async (p, pi) => {
-              try {
-                const pname = await p.get("name").catch(() => '');
-                const value = await p.get("value").catch(() => 0);
-                const min   = await p.get("min").catch(() => 0);
-                const max   = await p.get("max").catch(() => 1);
-                return (pname && max > min) ? { id: pi, name: pname, value, min, max } : null;
-              } catch { return null; }
-            })
-          )).filter(Boolean);
-          return { id: di, name, params: paramList };
-        } catch {
-          return null;
-        }
-      })
-    );
-    return result.filter(Boolean);
-  }
-
-  async setDeviceParam(trackIndex, deviceIndex, paramIndex, value) {
-    const val = parseFloat(value);
-    if (!Number.isFinite(val)) throw new Error("Invalid parameter value");
-    const t = await this._getTrack(trackIndex);
-    const devices = await t.get("devices");
-    const device  = devices[deviceIndex];
-    if (!device) throw new Error(`Device ${deviceIndex} not found`);
-    const params = await device.get("parameters");
-    const param  = params[paramIndex];
-    if (!param)  throw new Error(`Param ${paramIndex} not found`);
-    await param.set("value", val);
   }
 
   /* ── Setlist meta ────────────────────────────────────────────────────────── */
