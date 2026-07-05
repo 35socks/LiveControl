@@ -2,10 +2,6 @@
  * app.js — LiveControl frontend
  */
 
-/* ── Protected track names (mixer + tracks panel) ─────────────────────────── */
-const PROTECTED = ['song name', 'clicks', 'cues'];
-const isProtected = (name) => PROTECTED.includes((name || '').toLowerCase().trim());
-
 /* ── State ───────────────────────────────────────────────────────────────── */
 let state = {
   connected: false,
@@ -19,13 +15,11 @@ let state = {
 };
 
 let expandedSongId = null;
-let activeTab = 'setlist';
 
 // Modal state
 let pendingJump = null;
 let pendingNotesSong = null;
 let pendingColorSong = null;
-let pluginTrackContext = null; // { id, name }
 
 // Drag state
 let dragSrcIndex = null;
@@ -95,7 +89,6 @@ function applyState(newState) {
   }
 
   updateConnDot(state.connected);
-  updateHeader();
   updateTransport();
   updateProgress();
   updateSectionProgress();
@@ -114,10 +107,8 @@ function applyState(newState) {
 function updateConnDot(connected) {
   const dot = document.getElementById('conn-dot');
   dot.className = 'conn-dot ' + (connected ? 'connected' : 'disconnected');
-}
-
-function updateHeader() {
-  document.getElementById('project-name').textContent = state.projectName || 'LiveControl';
+  const label = document.getElementById('conn-label');
+  if (label) label.textContent = connected ? 'Connected' : 'Disconnected';
 }
 
 function updateTransport() {
@@ -160,7 +151,6 @@ function updateSectionProgress() {
 
 /* ── Auto-scroll ─────────────────────────────────────────────────────────── */
 function autoScroll() {
-  if (activeTab !== 'setlist') return;
   if (state.activeSongIndex === _lastScrollSong && state.activeSectionIndex === _lastScrollSection) return;
   _lastScrollSong    = state.activeSongIndex;
   _lastScrollSection = state.activeSectionIndex;
@@ -363,12 +353,18 @@ function renderSetlist() {
         </button>
       </div>` : '';
 
+    const introSkipHtml = song.introSkip != null
+      ? `<div class="song-intro-skip" title="Jumping skips intro silence to ${formatTime(song.introSkip)}">
+           <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zm2.5-6 5.5 3.9V8.1z"/><path d="M16 6h2v12h-2z"/></svg>
+         </div>` : '';
+
     item.innerHTML = `
       <div class="song-row">
         <svg class="drag-handle" viewBox="0 0 24 24"><path d="M20 9H4v2h16V9zM4 15h16v-2H4v2z"/></svg>
         <div class="song-color-dot" style="background:${colorBg}"></div>
         <div class="song-number">${visibleIdx + 1}</div>
         <div class="song-name">${esc(song.name)}</div>
+        ${introSkipHtml}
         <div class="song-duration">${formatTime(song.duration)}</div>
         <svg class="song-chevron" viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>
       </div>
@@ -490,426 +486,6 @@ function renderColorSwatches(currentColor) {
   });
 }
 
-/* ── Tracks panel ─────────────────────────────────────────────────────────── */
-async function loadTracks() {
-  const container = document.getElementById('tracks-list');
-  container.innerHTML = '<div class="loading-tracks">Loading tracks…</div>';
-  try {
-    const data   = await api('GET', '/api/tracks');
-    const tracks = (data.tracks || []).filter(t => !isProtected(t.name));
-    if (!tracks.length) { container.innerHTML = '<div class="loading-tracks">No tracks found</div>'; return; }
-    container.innerHTML = '';
-    tracks.forEach(track => {
-      const el = document.createElement('div');
-      el.className = 'track-item';
-      el.innerHTML = `
-        <div class="track-name">${esc(track.name)}</div>
-        <button class="track-toggle${track.muted ? ' muted' : ''}" data-action="mute">
-          ${track.muted ? 'MUTED' : 'MUTE'}
-        </button>
-        <button class="track-toggle${track.solo ? ' active' : ''}" data-action="solo">SOLO</button>
-      `;
-      el.querySelector('[data-action="mute"]').addEventListener('click', () => {
-        api('POST', `/api/track/${track.id}/mute`, { muted: !track.muted }).then(loadTracks);
-      });
-      el.querySelector('[data-action="solo"]').addEventListener('click', () => {
-        api('POST', `/api/track/${track.id}/solo`, { solo: !track.solo }).then(loadTracks);
-      });
-      container.appendChild(el);
-    });
-  } catch {
-    container.innerHTML = '<div class="loading-tracks">Error loading tracks.</div>';
-  }
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
-   EQ canvas — biquad filter maths
-   ══════════════════════════════════════════════════════════════════════════ */
-
-/** Magnitude of a peaking EQ biquad at frequency `f` Hz */
-function peakingMag(f, fc, gainDB, Q, fs = 44100) {
-  if (gainDB === 0) return 1;
-  const A   = Math.pow(10, gainDB / 40);
-  const w0  = 2 * Math.PI * fc / fs;
-  const cos0= Math.cos(w0), sin0 = Math.sin(w0);
-  const alp = sin0 / (2 * Math.max(Q, 0.01));
-  const b0 = 1 + alp * A,  b1 = -2 * cos0, b2 = 1 - alp * A;
-  const a0 = 1 + alp / A,  a1 = -2 * cos0, a2 = 1 - alp / A;
-  const w  = 2 * Math.PI * f / fs;
-  const cw = Math.cos(w), sw = Math.sin(w);
-  const bR = b0 + b1*cw + b2*Math.cos(2*w);
-  const bI = -(b1*sw + b2*Math.sin(2*w));
-  const aR = a0 + a1*cw + a2*Math.cos(2*w);
-  const aI = -(a1*sw + a2*Math.sin(2*w));
-  const bM = Math.hypot(bR, bI), aM = Math.hypot(aR, aI);
-  return aM > 0 ? bM / aM : 1;
-}
-
-/** Magnitude of a low/high-shelf biquad at frequency `f` Hz */
-function shelfMag(f, fc, gainDB, isHigh, fs = 44100) {
-  if (gainDB === 0) return 1;
-  const A   = Math.pow(10, gainDB / 40);
-  const w0  = 2 * Math.PI * fc / fs;
-  const cos0= Math.cos(w0), sin0 = Math.sin(w0);
-  const alp = sin0 / 2 * Math.sqrt((A + 1/A) * (1/1 - 1) + 2); // S=1
-  let b0,b1,b2,a0,a1,a2;
-  if (!isHigh) {
-    b0 =         A*((A+1)-(A-1)*cos0+2*Math.sqrt(A)*alp);
-    b1 =     2*A*((A-1)-(A+1)*cos0);
-    b2 =         A*((A+1)-(A-1)*cos0-2*Math.sqrt(A)*alp);
-    a0 =           (A+1)+(A-1)*cos0+2*Math.sqrt(A)*alp;
-    a1 =    -2*   ((A-1)+(A+1)*cos0);
-    a2 =           (A+1)+(A-1)*cos0-2*Math.sqrt(A)*alp;
-  } else {
-    b0 =         A*((A+1)+(A-1)*cos0+2*Math.sqrt(A)*alp);
-    b1 =    -2*A*((A-1)+(A+1)*cos0);
-    b2 =         A*((A+1)+(A-1)*cos0-2*Math.sqrt(A)*alp);
-    a0 =           (A+1)-(A-1)*cos0+2*Math.sqrt(A)*alp;
-    a1 =     2*   ((A-1)-(A+1)*cos0);
-    a2 =           (A+1)-(A-1)*cos0-2*Math.sqrt(A)*alp;
-  }
-  const w  = 2 * Math.PI * f / fs;
-  const cw = Math.cos(w), sw = Math.sin(w);
-  const bR = b0+b1*cw+b2*Math.cos(2*w), bI = -(b1*sw+b2*Math.sin(2*w));
-  const aR = a0+a1*cw+a2*Math.cos(2*w), aI = -(a1*sw+a2*Math.sin(2*w));
-  const bM = Math.hypot(bR,bI), aM = Math.hypot(aR,aI);
-  return aM > 0 ? bM/aM : 1;
-}
-
-/**
- * bands = [{ type:'peak'|'lowShelf'|'highShelf', freq, gain, q }]
- */
-function drawEQCanvas(canvas, bands = []) {
-  const dpr = window.devicePixelRatio || 1;
-  // Resize to CSS size × DPR for sharpness
-  const cssW = canvas.offsetWidth  || 92;
-  const cssH = canvas.offsetHeight || 60;
-  canvas.width  = cssW * dpr;
-  canvas.height = cssH * dpr;
-  const ctx = canvas.getContext('2d');
-  const W = canvas.width, H = canvas.height;
-
-  ctx.clearRect(0, 0, W, H);
-  ctx.fillStyle = '#0d0d0d';
-  ctx.fillRect(0, 0, W, H);
-
-  const FMIN = 20, FMAX = 20000, DB_MAX = 15, DB_MIN = -15;
-  const freqToX = f  => (Math.log10(f / FMIN) / Math.log10(FMAX / FMIN)) * W;
-  const dbToY   = db => H - ((db - DB_MIN) / (DB_MAX - DB_MIN)) * H;
-
-  // Grid
-  ctx.strokeStyle = '#1c1c1c'; ctx.lineWidth = dpr;
-  [100, 1000, 10000].forEach(f => {
-    ctx.beginPath(); ctx.moveTo(freqToX(f), 0); ctx.lineTo(freqToX(f), H); ctx.stroke();
-  });
-  ctx.strokeStyle = '#252525';
-  const y0 = dbToY(0);
-  ctx.beginPath(); ctx.moveTo(0, y0); ctx.lineTo(W, y0); ctx.stroke();
-
-  // Response curve
-  const pts = W;
-  const resp = new Float32Array(pts);
-  for (let i = 0; i < pts; i++) {
-    const f = FMIN * Math.pow(FMAX / FMIN, i / (pts - 1));
-    let db = 0;
-    for (const b of bands) {
-      let mag = 1;
-      if (b.type === 'peak')      mag = peakingMag(f, b.freq, b.gain, b.q || 1);
-      else if (b.type === 'lowShelf')  mag = shelfMag(f, b.freq, b.gain, false);
-      else if (b.type === 'highShelf') mag = shelfMag(f, b.freq, b.gain, true);
-      db += 20 * Math.log10(Math.max(mag, 1e-10));
-    }
-    resp[i] = db;
-  }
-
-  // Fill
-  const grad = ctx.createLinearGradient(0, 0, 0, H);
-  grad.addColorStop(0,   'rgba(34,197,94,0.40)');
-  grad.addColorStop(0.5, 'rgba(34,197,94,0.10)');
-  grad.addColorStop(1,   'rgba(34,197,94,0.02)');
-  ctx.beginPath();
-  ctx.moveTo(0, dbToY(resp[0]));
-  for (let i = 1; i < pts; i++) ctx.lineTo(i, dbToY(resp[i]));
-  ctx.lineTo(W, H); ctx.lineTo(0, H); ctx.closePath();
-  ctx.fillStyle = grad; ctx.fill();
-
-  // Line
-  ctx.beginPath();
-  ctx.moveTo(0, dbToY(resp[0]));
-  for (let i = 1; i < pts; i++) ctx.lineTo(i, dbToY(resp[i]));
-  ctx.strokeStyle = '#22c55e';
-  ctx.lineWidth = 1.5 * dpr;
-  ctx.stroke();
-}
-
-/** Extract band objects from an EQ Eight device's parameter list */
-function parseEQEightBands(params) {
-  const bands = [];
-  for (let i = 1; i <= 8; i++) {
-    const on   = params.find(p => p.name === `${i} Filter On`);
-    const freq = params.find(p => p.name === `${i} Frequency A` || p.name === `${i} Frequency`);
-    const gain = params.find(p => p.name === `${i} Gain`);
-    const q    = params.find(p => p.name === `${i} Resonance`   || p.name === `${i} Q`);
-    const type = params.find(p => p.name === `${i} Filter Type`);
-    if (!freq) continue;
-    if (on && on.value < 0.5) continue; // band is off
-    const bandTypeCode = type ? Math.round(type.value) : 2;
-    let bandType = 'peak';
-    if (bandTypeCode === 4) bandType = 'highShelf';
-    else if (bandTypeCode === 5) bandType = 'lowShelf';
-    bands.push({
-      type: bandType,
-      freq: freq.value,
-      gain: gain ? gain.value : 0,
-      q:    q    ? Math.max(0.01, q.value) : 1,
-    });
-  }
-  return bands;
-}
-
-/* ══════════════════════════════════════════════════════════════════════════
-   MIXER
-   ══════════════════════════════════════════════════════════════════════════ */
-let _mixerTracks = [];
-
-async function loadMixer() {
-  const container = document.getElementById('mixer-channels');
-  container.innerHTML = '<div class="loading-tracks">Loading mixer…</div>';
-  try {
-    const data   = await api('GET', '/api/tracks');
-    _mixerTracks = (data.tracks || []).filter(t => !isProtected(t.name));
-    if (!_mixerTracks.length) {
-      container.innerHTML = '<div class="loading-tracks">No tracks found</div>'; return;
-    }
-    container.innerHTML = '';
-
-    _mixerTracks.forEach(track => {
-      const volPct = track.volume != null ? Math.round(track.volume * 100) : 85;
-      const panRaw = track.pan    != null ? track.pan : 0; // -1..+1
-      const panInt = Math.round(panRaw * 100);             // -100..+100
-      const panLabel = panRaw > 0.01  ? `R${Math.round(panRaw*100)}`
-                     : panRaw < -0.01 ? `L${Math.round(-panRaw*100)}`
-                     : 'C';
-      const volLabel = volPct === 85 ? '0 dB'
-                     : `${volPct > 85 ? '+' : ''}${volPct - 85} dB`;
-
-      const strip = document.createElement('div');
-      strip.className = 'mixer-strip';
-      strip.dataset.trackId = track.id;
-      strip.innerHTML = `
-        <div class="mixer-strip-name" title="${esc(track.name)}">${esc(track.name)}</div>
-
-        <canvas class="mixer-eq-canvas"></canvas>
-
-        <div class="mixer-fader-section">
-          <div class="mixer-fader-container">
-            <input type="range" class="mixer-fader" min="0" max="100" value="${volPct}">
-          </div>
-          <div class="mixer-vol-label">${volLabel}</div>
-        </div>
-
-        <div class="mixer-pan-section">
-          <div class="mixer-pan-label">PAN</div>
-          <input type="range" class="mixer-pan" min="-100" max="100" value="${panInt}">
-          <div class="mixer-pan-value">${panLabel}</div>
-        </div>
-
-        <div class="mixer-btn-row">
-          <button class="mixer-btn mixer-mute${track.muted ? ' active-mute' : ''}">M</button>
-          <button class="mixer-btn mixer-solo${track.solo ? ' active-solo' : ''}">S</button>
-        </div>
-
-        <button class="mixer-plugin-btn" title="Plugin settings">
-          <svg viewBox="0 0 24 24">
-            <path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61
-              l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54
-              c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94
-              l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58
-              c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32
-              c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84
-              c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22
-              l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6
-              s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
-          </svg>
-          Plugins
-        </button>
-      `;
-
-      container.appendChild(strip);
-
-      // Draw initial flat EQ
-      const canvas = strip.querySelector('.mixer-eq-canvas');
-      drawEQCanvas(canvas, []);
-
-      // Volume fader
-      const fader    = strip.querySelector('.mixer-fader');
-      const volLbl   = strip.querySelector('.mixer-vol-label');
-      let _volDebounce;
-      fader.addEventListener('input', (e) => {
-        const v = parseInt(e.target.value);
-        volLbl.textContent = v === 85 ? '0 dB' : `${v > 85 ? '+' : ''}${v - 85} dB`;
-        clearTimeout(_volDebounce);
-        _volDebounce = setTimeout(() => {
-          api('POST', `/api/track/${track.id}/volume`, { volume: v / 100 });
-        }, 80);
-      });
-
-      // Pan slider
-      const panSlider = strip.querySelector('.mixer-pan');
-      const panLbl    = strip.querySelector('.mixer-pan-value');
-      let _panDebounce;
-      panSlider.addEventListener('input', (e) => {
-        const v = parseInt(e.target.value); // -100..+100
-        panLbl.textContent = v > 0 ? `R${v}` : v < 0 ? `L${-v}` : 'C';
-        clearTimeout(_panDebounce);
-        _panDebounce = setTimeout(() => {
-          api('POST', `/api/track/${track.id}/pan`, { pan: v / 100 });
-        }, 80);
-      });
-
-      // Mute
-      strip.querySelector('.mixer-mute').addEventListener('click', (e) => {
-        const isMuted = e.currentTarget.classList.contains('active-mute');
-        api('POST', `/api/track/${track.id}/mute`, { muted: !isMuted }).then(loadMixer);
-      });
-
-      // Solo
-      strip.querySelector('.mixer-solo').addEventListener('click', (e) => {
-        const isSolo = e.currentTarget.classList.contains('active-solo');
-        api('POST', `/api/track/${track.id}/solo`, { solo: !isSolo }).then(loadMixer);
-      });
-
-      // Plugin settings
-      strip.querySelector('.mixer-plugin-btn').addEventListener('click', () => {
-        openPluginModal(track);
-      });
-    });
-
-    // Load EQ data asynchronously — doesn't block the mixer appearing
-    loadMixerEQ(_mixerTracks);
-
-  } catch (e) {
-    console.error('[mixer]', e);
-    container.innerHTML = '<div class="loading-tracks">Error loading mixer.</div>';
-  }
-}
-
-async function loadMixerEQ(tracks) {
-  for (const track of tracks) {
-    try {
-      const data    = await api('GET', `/api/track/${track.id}/devices`);
-      const devices = data.devices || [];
-      const eqDev   = devices.find(d =>
-        /eq.?eight|eq.?8|channel.?eq/i.test(d.name || '')
-      );
-      if (!eqDev) continue;
-      const bands  = parseEQEightBands(eqDev.params);
-      const canvas = document.querySelector(
-        `.mixer-strip[data-track-id="${track.id}"] .mixer-eq-canvas`
-      );
-      if (canvas) drawEQCanvas(canvas, bands);
-    } catch { /* non-fatal */ }
-  }
-}
-
-/* ── Plugin modal ─────────────────────────────────────────────────────────── */
-async function openPluginModal(track) {
-  pluginTrackContext = track;
-  document.getElementById('plugin-modal-track-name').textContent = track.name;
-  document.getElementById('plugin-devices').innerHTML =
-    '<div class="plugin-loading">Loading devices…</div>';
-  document.getElementById('plugin-modal').classList.remove('hidden');
-
-  try {
-    const data    = await api('GET', `/api/track/${track.id}/devices`);
-    const devices = data.devices || [];
-    const container = document.getElementById('plugin-devices');
-
-    if (!devices.length) {
-      container.innerHTML = '<div class="plugin-loading">No devices on this track.</div>';
-      return;
-    }
-
-    container.innerHTML = '';
-    devices.forEach(device => {
-      const el = document.createElement('div');
-      el.className = 'plugin-device';
-
-      const header = document.createElement('div');
-      header.className = 'plugin-device-header';
-      header.innerHTML = `
-        <span class="plugin-device-name">${esc(device.name)}</span>
-        <span class="plugin-device-count">${device.params.length} params</span>
-        <span class="plugin-device-toggle-icon">▶</span>
-      `;
-      header.addEventListener('click', () => el.classList.toggle('open'));
-
-      const body = document.createElement('div');
-      body.className = 'plugin-device-body';
-
-      // Only show params with a real range
-      const params = (device.params || []).filter(p => p.name && p.max > p.min);
-      params.forEach(param => {
-        const range = param.max - param.min;
-        const norm  = range > 0 ? (param.value - param.min) / range : 0;
-        const disp  = param.value % 1 === 0 ? param.value : param.value.toFixed(3);
-
-        const row = document.createElement('div');
-        row.className = 'plugin-param';
-        row.innerHTML = `
-          <div class="plugin-param-header">
-            <span class="plugin-param-name" title="${esc(param.name)}">${esc(param.name)}</span>
-            <span class="plugin-param-value">${disp}</span>
-          </div>
-          <input type="range" class="plugin-param-slider"
-            min="0" max="1000" value="${Math.round(norm * 1000)}"
-            data-device-id="${device.id}" data-param-id="${param.id}"
-            data-min="${param.min}" data-max="${param.max}">
-        `;
-
-        const slider  = row.querySelector('.plugin-param-slider');
-        const valueLbl= row.querySelector('.plugin-param-value');
-        let _debounce;
-        slider.addEventListener('input', (e) => {
-          const n   = parseInt(e.target.value) / 1000;
-          const val = param.min + n * range;
-          const d   = val % 1 === 0 ? val : val.toFixed(3);
-          valueLbl.textContent = d;
-          clearTimeout(_debounce);
-          _debounce = setTimeout(() => {
-            api('POST',
-              `/api/track/${track.id}/device/${device.id}/param/${param.id}`,
-              { value: val }
-            ).then(() => {
-              // Refresh EQ canvas if this is an EQ device
-              if (/eq.?eight|eq.?8|channel.?eq/i.test(device.name)) {
-                loadMixerEQ([track]);
-              }
-            });
-          }, 80);
-        });
-
-        body.appendChild(row);
-      });
-
-      if (params.length === 0) {
-        body.innerHTML = '<div class="plugin-loading" style="padding:10px 0">No automatable parameters.</div>';
-      }
-
-      el.appendChild(header);
-      el.appendChild(body);
-      container.appendChild(el);
-    });
-
-    // Open first device by default
-    container.querySelector('.plugin-device')?.classList.add('open');
-
-  } catch {
-    document.getElementById('plugin-devices').innerHTML =
-      '<div class="plugin-loading">Error loading devices.</div>';
-  }
-}
-
 /* ── Event bindings ──────────────────────────────────────────────────────── */
 document.getElementById('btn-play').addEventListener('click', () => {
   state.isPlaying ? api('POST', '/api/stop') : api('POST', '/api/play');
@@ -977,39 +553,45 @@ document.querySelector('#color-modal .modal-backdrop').addEventListener('click',
   document.getElementById('color-modal').classList.add('hidden'); pendingColorSong = null;
 });
 
-// Plugin modal
-document.getElementById('plugin-close').addEventListener('click', () => {
-  document.getElementById('plugin-modal').classList.add('hidden'); pluginTrackContext = null;
-});
-document.querySelector('#plugin-modal .modal-backdrop').addEventListener('click', () => {
-  document.getElementById('plugin-modal').classList.add('hidden'); pluginTrackContext = null;
-});
-
-// Mixer refresh button
-document.getElementById('mixer-refresh').addEventListener('click', loadMixer);
-
-// Tab bar
-document.querySelectorAll('.tab-btn').forEach(btn => {
-  btn.addEventListener('click', () => {
-    activeTab = btn.dataset.tab;
-    document.querySelectorAll('.tab-btn')
-      .forEach(b => b.classList.toggle('tab-btn--active', b.dataset.tab === activeTab));
-
-    document.querySelector('.setlist-container')?.classList.toggle('hidden', activeTab !== 'setlist');
-    document.getElementById('tracks-panel')?.classList.toggle('hidden', activeTab !== 'tracks');
-    document.getElementById('mixer-panel')?.classList.toggle('hidden', activeTab !== 'mixer');
-
-    if (activeTab === 'tracks') loadTracks();
-    if (activeTab === 'mixer')  loadMixer();
-  });
-});
-
 // Keyboard shortcuts
 document.addEventListener('keydown', (e) => {
   if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
   if (e.code === 'Space')      { e.preventDefault(); document.getElementById('btn-play').click(); }
   if (e.code === 'ArrowRight') api('POST', '/api/next-cue');
   if (e.code === 'ArrowLeft')  api('POST', '/api/prev-cue');
+});
+
+/* ── Theme switcher ──────────────────────────────────────────────────────── */
+const THEMES = ['midnight', 'crimson', 'tape', 'mono'];
+function applyTheme(theme) {
+  if (!THEMES.includes(theme)) theme = 'midnight';
+  document.documentElement.setAttribute('data-theme', theme);
+  try { localStorage.setItem('lc-theme', theme); } catch {}
+  document.querySelectorAll('.theme-option').forEach(btn =>
+    btn.classList.toggle('theme-option--active', btn.dataset.theme === theme));
+}
+(function initTheme() {
+  let saved = 'midnight';
+  try { saved = localStorage.getItem('lc-theme') || 'midnight'; } catch {}
+  applyTheme(saved);
+})();
+
+const themeBtn  = document.getElementById('theme-btn');
+const themeMenu = document.getElementById('theme-menu');
+themeBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  themeMenu.classList.toggle('hidden');
+});
+document.querySelectorAll('.theme-option').forEach(btn => {
+  btn.addEventListener('click', () => {
+    applyTheme(btn.dataset.theme);
+    themeMenu.classList.add('hidden');
+  });
+});
+document.addEventListener('click', (e) => {
+  if (!themeMenu.classList.contains('hidden') && !themeMenu.contains(e.target) && e.target !== themeBtn) {
+    themeMenu.classList.add('hidden');
+  }
 });
 
 /* ── Init ────────────────────────────────────────────────────────────────── */
