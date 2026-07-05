@@ -133,68 +133,6 @@ app.post("/api/setlist/reorder", (req, res) =>
   })
 );
 
-/* ── Tracks ──────────────────────────────────────────────────────────────── */
-app.get("/api/tracks", (req, res) =>
-  wrap(res, async () => {
-    const tracks = await bridge.getTracks();
-    res.json({ ok: true, tracks });
-  })
-);
-
-app.post("/api/track/:id/mute", (req, res) =>
-  wrap(res, async () => {
-    await bridge.setTrackMute(parseInt(req.params.id), !!req.body.muted);
-    ok(res);
-  })
-);
-
-app.post("/api/track/:id/solo", (req, res) =>
-  wrap(res, async () => {
-    await bridge.setTrackSolo(parseInt(req.params.id), !!req.body.solo);
-    ok(res);
-  })
-);
-
-app.post("/api/track/:id/volume", (req, res) =>
-  wrap(res, async () => {
-    const volume = parseFloat(req.body.volume);
-    if (!Number.isFinite(volume)) return fail(res, "volume required");
-    await bridge.setTrackVolume(parseInt(req.params.id), volume);
-    ok(res);
-  })
-);
-
-app.post("/api/track/:id/pan", (req, res) =>
-  wrap(res, async () => {
-    const pan = parseFloat(req.body.pan);
-    if (!Number.isFinite(pan)) return fail(res, "pan required");
-    await bridge.setTrackPan(parseInt(req.params.id), pan);
-    ok(res);
-  })
-);
-
-/* ── Devices / plugin parameters ─────────────────────────────────────────── */
-app.get("/api/track/:id/devices", (req, res) =>
-  wrap(res, async () => {
-    const devices = await bridge.getTrackDevices(parseInt(req.params.id));
-    res.json({ ok: true, devices });
-  })
-);
-
-app.post("/api/track/:id/device/:did/param/:pid", (req, res) =>
-  wrap(res, async () => {
-    const value = parseFloat(req.body.value);
-    if (!Number.isFinite(value)) return fail(res, "value required");
-    await bridge.setDeviceParam(
-      parseInt(req.params.id),
-      parseInt(req.params.did),
-      parseInt(req.params.pid),
-      value
-    );
-    ok(res);
-  })
-);
-
 /* ── 404 + error handling ────────────────────────────────────────────────── */
 app.use("/api", (req, res) => fail(res, "Not found", 404));
 
