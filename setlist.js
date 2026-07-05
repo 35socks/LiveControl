@@ -7,6 +7,8 @@
  *   > Section Name      → section within current song
  *   --- STOP ---        → auto-stop marker
  *   [STOP]              → auto-stop marker
+ *   [NEXTMARKER]         → the song's real starting point (skips lead-in
+ *                          silence) — jumping to the song jumps here instead
  *   // anything         → comment, ignored
  */
 
@@ -15,6 +17,7 @@ import { randomUUID } from "crypto";
 export function parseCuePoints(cuePoints) {
   const setlist = [];
   let currentSong = null;
+  let currentSongHasExplicitStart = false;
 
   const sortedCues = [...cuePoints].sort((a, b) => a.raw.time - b.raw.time);
 
@@ -30,6 +33,16 @@ export function parseCuePoints(cuePoints) {
     if (isStopMarker(name)) {
       if (currentSong) {
         currentSong.stopMarkers.push({ time, cueObject: cue });
+      }
+      continue;
+    }
+
+    // Real starting point of the current song (skips lead-in silence).
+    // Only the first one found after a song's own cue point is used.
+    if (isNextMarker(name)) {
+      if (currentSong && !currentSongHasExplicitStart) {
+        currentSong.startCue = { time, cueObject: cue };
+        currentSongHasExplicitStart = true;
       }
       continue;
     }
@@ -55,6 +68,9 @@ export function parseCuePoints(cuePoints) {
       name: songName,
       time,
       cueObject: cue,
+      // Defaults to the song's own cue; overwritten if a [NEXTMARKER]
+      // cue is found before the next song entry.
+      startCue: { time, cueObject: cue },
       sections: [],
       stopMarkers: [],
       // These get merged from storage (notes, color, excluded)
@@ -62,6 +78,7 @@ export function parseCuePoints(cuePoints) {
       color: "",
       excluded: false,
     };
+    currentSongHasExplicitStart = false;
     setlist.push(currentSong);
   }
 
@@ -84,6 +101,11 @@ function isStopMarker(name) {
     lower.includes("--- stop ---") ||
     lower.startsWith("[stop]")
   );
+}
+
+function isNextMarker(name) {
+  const lower = name.toLowerCase().replace(/\s+/g, "");
+  return lower === "[nextmarker]" || lower === "nextmarker";
 }
 
 function cleanName(name) {
