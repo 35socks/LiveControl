@@ -66,12 +66,14 @@ LiveControl reads cue point names from your Ableton arrangement view:
 | `[Song Title]` | Creates a song entry (bracket notation) |
 | `> Verse` | Section within the current song |
 | `> Chorus` | Another section |
+| `[NEXTMARKER]` | Real starting point of the song — jumping to the song jumps here instead, skipping lead-in silence |
 | `[STOP]` or `--- STOP ---` | Auto-stop marker (pauses playback) |
 | `// comment` | Ignored |
 
 **Example arrangement:**
 ```
 0:00  Intro
+0:08  [NEXTMARKER]      ← song actually starts here; jumping skips the 8s of lead-in silence
 1:30  > Verse 1
 2:30  > Chorus
 4:00  [STOP]
@@ -113,13 +115,6 @@ All endpoints return `{ ok: true, ... }` or `{ ok: false, error: "..." }`.
 | POST | `/api/song/:id/notes` | `{ notes: "..." }` | Save notes |
 | POST | `/api/song/:id/color` | `{ color: "red" }` | Set color |
 | POST | `/api/song/:id/exclude` | `{ excluded: true }` | Skip song in setlist |
-
-### Tracks
-| Method | Path | Body | Description |
-|---|---|---|---|
-| GET | `/api/tracks` | — | List all tracks |
-| POST | `/api/track/:id/mute` | `{ muted: true }` | Mute/unmute track |
-| POST | `/api/track/:id/solo` | `{ solo: true }` | Solo/unsolo track |
 
 ---
 
