@@ -21,6 +21,21 @@
   </div>
 
   <!-- Confirm jump modal -->
+  <div id="qr-modal" class="modal hidden">
+    <div class="modal-backdrop"></div>
+    <div class="modal-card qr-card">
+      <p class="modal-title">Connect a device</p>
+      <p class="qr-sub">Scan with your phone or tablet camera. Both devices need to be on the same Wi-Fi network.</p>
+      <div class="qr-frame"><img id="qr-image" alt="QR code to open LiveControl" width="240" height="240"></div>
+      <div class="qr-url" id="qr-url"></div>
+      <select id="qr-address" class="jump-mode qr-address hidden" aria-label="Network address"></select>
+      <div class="modal-actions">
+        <button class="btn-secondary" id="qr-copy">Copy address</button>
+        <button class="btn-primary" id="qr-close">Done</button>
+      </div>
+    </div>
+  </div>
+
   <div id="jump-modal" class="modal hidden">
     <div class="modal-backdrop"></div>
     <div class="modal-card">
@@ -73,9 +88,21 @@
     <header class="header">
       <div class="header-left">
         <div class="logo">LC</div>
-        <div class="header-title">LiveControl</div>
+        <h1 class="header-title" id="setlist-name" title="Click to rename setlist">Setlist</h1>
       </div>
       <div class="header-right">
+        <button class="view-toggle" id="view-toggle" aria-pressed="false">Performance</button>
+        <select id="jump-mode" class="jump-mode" aria-label="Jump mode">
+          <option value="quantized">Quantized</option>
+          <option value="end-of-section">End of Section</option>
+          <option value="end-of-song">End of Song</option>
+          <option value="dynamic">Dynamic</option>
+          <option value="manual">Manual</option>
+        </select>
+        <label class="stop-after-song"><input id="stop-after-song" type="checkbox"> Stop after song</label>
+        <button class="theme-btn" id="qr-btn" title="Connect a phone or tablet" aria-label="Connect a phone or tablet">
+          <svg viewBox="0 0 24 24"><path d="M3 3h8v8H3V3zm2 2v4h4V5H5zm8-2h8v8h-8V3zm2 2v4h4V5h-4zM3 13h8v8H3v-8zm2 2v4h4v-4H5zm8 0h2v2h-2v-2zm2 2h2v2h-2v-2zm-2 2h2v2h-2v-2zm4-4h2v2h-2v-2zm0 4h2v2h-2v-2z"/></svg>
+        </button>
         <button class="theme-btn" id="theme-btn" title="Change theme" aria-label="Change theme">
           <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20c1.1 0 2-.9 2-2 0-.52-.2-.99-.53-1.34-.32-.34-.52-.8-.52-1.31 0-1.1.9-2 2-2H17a5 5 0 0 0 5-5c0-4.42-4.03-8-10-8zM7.5 12a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm3-4A1.5 1.5 0 1 1 10.5 5a1.5 1.5 0 0 1 0 3zm5 0A1.5 1.5 0 1 1 15.5 5a1.5 1.5 0 0 1 0 3zm3 4a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3z"/></svg>
         </button>
@@ -110,17 +137,43 @@
     <main class="setlist-container">
       <div class="setlist-header">
         <span class="setlist-title">SETLIST</span>
+        <button class="collapse-all" id="collapse-all" type="button" title="Collapse or expand all songs">Collapse all</button>
         <span class="setlist-duration" id="setlist-duration"></span>
       </div>
       <div id="setlist" class="setlist"></div>
     </main>
 
+    <main id="performance-view" class="performance-view" aria-live="polite">
+      <div class="performance-eyebrow">NOW PLAYING</div>
+      <h1 id="performance-song">Ready</h1>
+      <div id="performance-section" class="performance-section">Waiting for section</div>
+      <div id="performance-lyrics" class="performance-lyrics hidden" aria-label="Synchronized lyrics"></div>
+      <div id="performance-loop" class="performance-loop hidden"></div>
+      <div class="performance-progress"><div id="performance-progress-fill"></div></div>
+      <div class="performance-next-label">UP NEXT</div>
+      <div id="performance-next" class="performance-next">Next song</div>
+      <div id="performance-remaining" class="performance-remaining"></div>
+      <div id="performance-tempo" class="performance-tempo">120 BPM</div>
+    </main>
+
+    <div id="jump-queue-bar" class="jump-queue-bar hidden" role="status">
+      <div class="jump-queue-copy"><span class="jump-queue-label">QUEUED JUMP</span><span id="jump-queue-name"></span></div>
+      <div class="jump-queue-actions">
+        <button id="jump-queue-quantized" class="queue-action">Jump quantized</button>
+        <button id="jump-queue-now" class="queue-action queue-action-primary">Jump now</button>
+        <button id="jump-queue-cancel" class="queue-cancel" aria-label="Cancel queued jump">×</button>
+      </div>
+    </div>
+
     <!-- Bottom transport bar -->
     <div class="bottom-bar">
       <div class="bottom-bar-info">
-        <div class="bottom-timecode" id="transport-time">0:00</div>
-        <div class="bottom-song-name" id="transport-song-name">—</div>
-        <div class="bottom-bpm"><span id="tempo-value">120</span> BPM</div>
+        <div class="bottom-position">
+          <span class="bottom-bars" id="transport-bars" title="Bar.Beat">1.1</span>
+          <span class="bottom-time" id="transport-time">0:00</span>
+        </div>
+        <div class="bottom-bpm" title="Click to set tempo"><span id="tempo-value">120</span> BPM<span class="bottom-sep"> / </span><span id="transport-sig">4/4</span></div>
+        <div class="visual-metronome" id="visual-metronome" aria-hidden="true"></div>
       </div>
       <div class="bottom-bar-controls">
         <button class="tb-btn" id="btn-prev" title="Previous cue">
