@@ -10,9 +10,11 @@ import { fileURLToPath } from "url";
 import { AbletonBridge } from "./ableton.js";
 import { setSongMeta, saveOrder } from "./storage.js";
 import os from "os";
+import { writeFile } from "fs/promises";
+import { qrSvg, qrTerminal } from "./qr.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = process.env.PORT || 3000;
+const PORT = Number.parseInt(process.env.PORT || "3000", 10);
 
 const app = express();
 app.use(express.json());
@@ -55,6 +57,37 @@ async function wrap(res, fn) {
   catch (e) { console.error("[api]", e.message); fail(res, e.message, 500); }
 }
 
+/* ── Connect info (QR / device syncing) ──────────────────────────────────── */
+// LAN IPv4 addresses other devices can reach, best candidate first
+// (Wi-Fi/Ethernet "en0", then private ranges, then anything else).
+function lanAddresses() {
+  const found = [];
+  for (const [name, list] of Object.entries(os.networkInterfaces())) {
+    for (const iface of list || []) {
+      if (iface.family !== "IPv4" || iface.internal) continue;
+      const priv = /^(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/.test(iface.address);
+      found.push({ name, address: iface.address, score: (name === "en0" ? 2 : 0) + (priv ? 1 : 0) });
+    }
+  }
+  return found.sort((a, b) => b.score - a.score);
+}
+
+function connectUrls() {
+  const port = server.address()?.port;
+  if (!port) return [];
+  return lanAddresses().map(({ name, address }) => ({ label: name, url: `http://${address}:${port}` }));
+}
+
+app.get("/api/connect", (req, res) => ok(res, { urls: connectUrls() }));
+
+app.get("/api/connect/qr.svg", (req, res) => {
+  const urls = connectUrls();
+  const index = Number.parseInt(req.query.i ?? "0", 10);
+  const target = urls[Number.isInteger(index) && index >= 0 ? index : 0];
+  if (!target) return res.status(404).type("text/plain").send("No network address found");
+  res.set("Cache-Control", "no-store").type("image/svg+xml").send(qrSvg(target.url));
+});
+
 /* ── State ───────────────────────────────────────────────────────────────── */
 app.get("/api/state", (req, res) => res.json({ ok: true, payload: bridge.state }));
 
@@ -75,19 +108,53 @@ app.post("/api/tempo", (req, res) => wrap(res, async () => {
 
 /* ── Setlist navigation ──────────────────────────────────────────────────── */
 app.post("/api/jump/song/:songId", (req, res) =>
-  wrap(res, async () => { await bridge.jumpToSong(req.params.songId); ok(res); })
+  wrap(res, async () => { await bridge.requestJump("song", req.params.songId); ok(res); })
 );
 
 app.post("/api/jump/section/:songId/:sectionId", (req, res) =>
   wrap(res, async () => {
-    await bridge.jumpToSection(req.params.songId, req.params.sectionId);
+    await bridge.requestJump("section", req.params.songId, req.params.sectionId);
     ok(res);
   })
 );
 
+app.post("/api/jump-mode", (req, res) => wrap(res, async () => {
+  await bridge.setJumpMode(req.body.mode);
+  ok(res, { mode: bridge.jumpMode });
+}));
+
+app.post("/api/settings/stop-after-song", (req, res) => wrap(res, async () => {
+  await bridge.setStopAfterSong(req.body.enabled);
+  ok(res, { enabled: bridge.stopAfterSong });
+}));
+
+app.post("/api/settings/setlist-name", (req, res) => wrap(res, async () => {
+  await bridge.setSetlistName(req.body.name);
+  ok(res, { name: bridge.state.setlistName });
+}));
+
+app.post("/api/jump/commit", (req, res) => wrap(res, async () => {
+  await bridge.commitPendingJump(req.body.quantized !== false);
+  ok(res);
+}));
+
+app.post("/api/jump/cancel", (req, res) => {
+  bridge.cancelPendingJump();
+  ok(res);
+});
+
 app.post("/api/reload", (req, res) =>
   wrap(res, async () => { await bridge.reloadSetlist(); ok(res); })
 );
+
+app.post("/api/loop", (req, res) => wrap(res, async () => {
+  if (req.body.active === false) {
+    await bridge.clearLoop();
+    return ok(res);
+  }
+  const loop = await bridge.setLoop(req.body.songId, req.body.sectionId || null);
+  ok(res, { loop });
+}));
 
 /* ── Song metadata ───────────────────────────────────────────────────────── */
 app.post("/api/song/:songId/notes", (req, res) =>
@@ -128,7 +195,7 @@ app.post("/api/setlist/reorder", (req, res) =>
     const { order } = req.body;
     if (!Array.isArray(order)) return fail(res, "order must be an array of IDs");
     bridge.reorderSetlist(order);
-    await saveOrder(bridge.setlist.map((s) => s.name));
+    await saveOrder(bridge.setlist.map((s) => ({ key: s.orderKey })));
     ok(res);
   })
 );
@@ -145,19 +212,22 @@ app.use((err, req, res, next) => {
 
 /* ── Start ───────────────────────────────────────────────────────────────── */
 server.listen(PORT, "0.0.0.0", async () => {
-  const interfaces = os.networkInterfaces();
-  let localIP = "localhost";
-  for (const name of Object.keys(interfaces)) {
-    for (const iface of interfaces[name]) {
-      if (iface.family === "IPv4" && !iface.internal) { localIP = iface.address; break; }
-    }
+  const actualPort = server.address().port;
+  if (process.env.PORT_FILE) {
+    try { await writeFile(process.env.PORT_FILE, String(actualPort), "utf8"); }
+    catch (e) { console.error("[server] Could not write port file:", e.message); }
   }
+  const localIP = lanAddresses()[0]?.address ?? "localhost";
   console.log("\n╔════════════════════════════════════════╗");
   console.log("║         LiveControl is running         ║");
   console.log("╠════════════════════════════════════════╣");
-  console.log(`║  Local:   http://localhost:${PORT}         ║`);
-  console.log(`║  Network: http://${localIP}:${PORT}    ║`);
+  console.log(`║  Local:   http://localhost:${actualPort}         ║`);
+  console.log(`║  Network: http://${localIP}:${actualPort}    ║`);
   console.log("╚════════════════════════════════════════╝\n");
+  if (localIP !== "localhost") {
+    console.log("Scan to open LiveControl on your phone or tablet:\n");
+    console.log(qrTerminal(`http://${localIP}:${actualPort}`) + "\n");
+  }
   try {
     await bridge.start();
   } catch (e) {
