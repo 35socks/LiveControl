@@ -14,11 +14,17 @@
 @property(nonatomic, strong) NSTimer *startupTimer;
 @property(nonatomic, strong) NSURL *dataDirectory;
 @property(nonatomic, strong) NSURL *portFile;
-@property(nonatomic, strong) NSMenuItem *statusMenuItem;
-@property(nonatomic, strong) NSMenuItem *networkMenuItem;
-@property(nonatomic, strong) NSWindow *qrWindow;
+@property(nonatomic, strong) NSPopover *popover;
+@property(nonatomic, strong) NSView *statusDot;
+@property(nonatomic, strong) NSTextField *statusLabel;
 @property(nonatomic, strong) NSImageView *qrImageView;
-@property(nonatomic, strong) NSTextField *qrURLLabel;
+@property(nonatomic, strong) NSTextField *qrHintLabel;
+@property(nonatomic, strong) NSTextField *networkURLLabel;
+@property(nonatomic, strong) NSTextField *localURLLabel;
+@property(nonatomic, strong) NSButton *networkCopyButton;
+@property(nonatomic, strong) NSButton *localCopyButton;
+@property(nonatomic, copy) NSString *statusText;
+@property(nonatomic) BOOL serverFailed;
 @property(nonatomic) NSInteger port;
 @end
 
@@ -26,6 +32,9 @@
 
 - (void)applicationDidFinishLaunching:(NSNotification *)notification {
     [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
+    self.statusText = @"Starting LiveControl…";
+    NSImage *appIcon = [self bundledImageNamed:@"icon"];
+    if (appIcon) NSApp.applicationIconImage = appIcon;
     [self configureWindow];
     [self configureMenuBar];
     [self startServer];
@@ -38,41 +47,226 @@
 
 - (BOOL)applicationShouldTerminateAfterLastWindowClosed:(NSApplication *)sender { return NO; }
 
+// Clicking the Dock icon brings the window back if it was closed or hidden.
+- (BOOL)applicationShouldHandleReopen:(NSApplication *)sender hasVisibleWindows:(BOOL)flag {
+    if (!flag) [self showWindow];
+    return YES;
+}
+
+- (NSImage *)bundledImageNamed:(NSString *)name {
+    NSString *path = [NSBundle.mainBundle pathForResource:name ofType:@"png"];
+    return path ? [[NSImage alloc] initWithContentsOfFile:path] : nil;
+}
+
 - (void)configureWindow {
-    NSRect frame = NSMakeRect(0, 0, 1120, 760);
+    NSRect frame = NSMakeRect(0, 0, 560, 760);
     self.window = [[NSWindow alloc] initWithContentRect:frame
         styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
         backing:NSBackingStoreBuffered defer:NO];
     self.window.title = @"LiveControl";
-    self.window.minSize = NSMakeSize(760, 560);
+    self.window.minSize = NSMakeSize(340, 420);
+    self.window.releasedWhenClosed = NO;
+    [self.window setFrameAutosaveName:@"LiveControlMainWindow"]; // remember the size/position you pick
     self.window.backgroundColor = [NSColor colorWithRed:0.04 green:0.04 blue:0.04 alpha:1];
     self.webView = [[WKWebView alloc] initWithFrame:self.window.contentView.bounds];
     self.webView.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
     [self.window.contentView addSubview:self.webView];
-    [self.window center];
+    if (![self.window setFrameUsingName:@"LiveControlMainWindow"]) [self.window center];
     [self.window makeKeyAndOrderFront:nil];
     [NSApp activateIgnoringOtherApps:YES];
 }
 
 - (void)configureMenuBar {
     self.statusItem = [[NSStatusBar systemStatusBar] statusItemWithLength:NSVariableStatusItemLength];
-    self.statusItem.button.image = [NSImage imageWithSystemSymbolName:@"waveform.path" accessibilityDescription:@"LiveControl"];
-    self.statusItem.button.image.template = YES;
-    self.statusItem.button.title = @" LiveControl";
-    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"LiveControl"];
-    [menu addItem:[[NSMenuItem alloc] initWithTitle:@"Show LiveControl" action:@selector(showWindow) keyEquivalent:@""]];
-    self.statusMenuItem = [[NSMenuItem alloc] initWithTitle:@"Starting LiveControl…" action:nil keyEquivalent:@""];
-    self.statusMenuItem.enabled = NO;
-    [menu addItem:self.statusMenuItem];
+    NSImage *glyph = [self bundledImageNamed:@"menubar-icon"];
+    if (glyph) {
+        // Source art is @2x; template lets macOS tint it for light/dark menu bars.
+        glyph.size = NSMakeSize(glyph.size.width / 2.0, glyph.size.height / 2.0);
+    } else {
+        glyph = [NSImage imageWithSystemSymbolName:@"waveform.path" accessibilityDescription:@"LiveControl"];
+    }
+    glyph.template = YES;
+    self.statusItem.button.image = glyph;
+    self.statusItem.button.imagePosition = NSImageOnly;
+    self.statusItem.button.title = @"";
+    self.statusItem.button.toolTip = @"LiveControl";
+    self.statusItem.button.target = self;
+    self.statusItem.button.action = @selector(togglePopover:);
+    [self configurePopover];
+}
+
+/* ── Menu bar popover: status, QR code, URLs, settings gear ───────────────── */
+
+static NSTextField *LCLabel(NSString *text, CGFloat size, NSFontWeight weight, NSColor *color, NSTextAlignment align) {
+    NSTextField *label = [NSTextField labelWithString:text];
+    label.font = [NSFont systemFontOfSize:size weight:weight];
+    label.textColor = color;
+    label.alignment = align;
+    return label;
+}
+
+- (NSTextField *)urlLabel {
+    NSTextField *label = [NSTextField labelWithString:@""];
+    label.font = [NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightRegular];
+    label.allowsEditingTextAttributes = YES; // lets the URL act as a clickable link
+    label.selectable = YES;
+    label.lineBreakMode = NSLineBreakByTruncatingMiddle;
+    return label;
+}
+
+- (NSButton *)copyButtonWithAction:(SEL)action {
+    NSButton *button = [NSButton buttonWithImage:[NSImage imageWithSystemSymbolName:@"doc.on.doc" accessibilityDescription:@"Copy"] target:self action:action];
+    button.bordered = NO;
+    button.toolTip = @"Copy";
+    return button;
+}
+
+- (void)configurePopover {
+    const CGFloat width = 300;
+    NSView *content = [[NSView alloc] initWithFrame:NSMakeRect(0, 0, width, 420)];
+
+    // Header: status dot + "LiveControl is Running!" + gear
+    self.statusDot = [[NSView alloc] initWithFrame:NSMakeRect(18, 386, 10, 10)];
+    self.statusDot.wantsLayer = YES;
+    self.statusDot.layer.cornerRadius = 5;
+    [content addSubview:self.statusDot];
+
+    self.statusLabel = LCLabel(@"", 14, NSFontWeightSemibold, NSColor.labelColor, NSTextAlignmentLeft);
+    self.statusLabel.frame = NSMakeRect(36, 382, 214, 18);
+    self.statusLabel.lineBreakMode = NSLineBreakByTruncatingTail;
+    [content addSubview:self.statusLabel];
+
+    NSButton *gear = [NSButton buttonWithImage:[NSImage imageWithSystemSymbolName:@"gearshape" accessibilityDescription:@"Settings"] target:self action:@selector(showSettingsMenu:)];
+    gear.frame = NSMakeRect(width - 44, 377, 28, 28);
+    gear.bordered = NO;
+    gear.toolTip = @"Settings";
+    [content addSubview:gear];
+
+    // QR code on a white card (needs light background to scan, even in Dark Mode)
+    NSView *card = [[NSView alloc] initWithFrame:NSMakeRect((width - 200) / 2, 168, 200, 200)];
+    card.wantsLayer = YES;
+    card.layer.backgroundColor = NSColor.whiteColor.CGColor;
+    card.layer.cornerRadius = 10;
+    [content addSubview:card];
+    self.qrImageView = [[NSImageView alloc] initWithFrame:NSMakeRect(12, 12, 176, 176)];
+    self.qrImageView.imageScaling = NSImageScaleProportionallyUpOrDown;
+    [card addSubview:self.qrImageView];
+
+    self.qrHintLabel = [NSTextField wrappingLabelWithString:@""];
+    self.qrHintLabel.font = [NSFont systemFontOfSize:11.5];
+    self.qrHintLabel.textColor = NSColor.secondaryLabelColor;
+    self.qrHintLabel.alignment = NSTextAlignmentCenter;
+    self.qrHintLabel.frame = NSMakeRect(20, 130, width - 40, 32);
+    [content addSubview:self.qrHintLabel];
+
+    // URL rows
+    NSTextField *networkTitle = LCLabel(@"PHONE / TABLET", 10, NSFontWeightSemibold, NSColor.tertiaryLabelColor, NSTextAlignmentLeft);
+    networkTitle.frame = NSMakeRect(20, 106, width - 40, 14);
+    [content addSubview:networkTitle];
+    self.networkURLLabel = [self urlLabel];
+    self.networkURLLabel.frame = NSMakeRect(20, 84, width - 66, 18);
+    [content addSubview:self.networkURLLabel];
+    self.networkCopyButton = [self copyButtonWithAction:@selector(copyNetworkAddress:)];
+    self.networkCopyButton.frame = NSMakeRect(width - 42, 81, 24, 24);
+    [content addSubview:self.networkCopyButton];
+
+    NSTextField *localTitle = LCLabel(@"THIS MAC", 10, NSFontWeightSemibold, NSColor.tertiaryLabelColor, NSTextAlignmentLeft);
+    localTitle.frame = NSMakeRect(20, 56, width - 40, 14);
+    [content addSubview:localTitle];
+    self.localURLLabel = [self urlLabel];
+    self.localURLLabel.frame = NSMakeRect(20, 34, width - 66, 18);
+    [content addSubview:self.localURLLabel];
+    self.localCopyButton = [self copyButtonWithAction:@selector(copyLocalAddress:)];
+    self.localCopyButton.frame = NSMakeRect(width - 42, 31, 24, 24);
+    [content addSubview:self.localCopyButton];
+
+    NSViewController *controller = [[NSViewController alloc] init];
+    controller.view = content;
+    self.popover = [[NSPopover alloc] init];
+    self.popover.contentViewController = controller;
+    self.popover.contentSize = NSMakeSize(width, 420);
+    self.popover.behavior = NSPopoverBehaviorTransient;
+    self.popover.animates = YES;
+    [self refreshPopover];
+}
+
+static NSAttributedString *LCLink(NSString *url) {
+    return [[NSAttributedString alloc] initWithString:url attributes:@{
+        NSLinkAttributeName: [NSURL URLWithString:url],
+        NSFontAttributeName: [NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightRegular],
+        NSForegroundColorAttributeName: NSColor.linkColor
+    }];
+}
+
+// Re-reads state (server status, Wi-Fi address) into the popover. Called on open and on state changes.
+- (void)refreshPopover {
+    if (!self.popover) return;
+    BOOL running = self.port > 0 && !self.serverFailed;
+    NSColor *dot = self.serverFailed ? NSColor.systemRedColor : (running ? NSColor.systemGreenColor : NSColor.systemOrangeColor);
+    self.statusDot.layer.backgroundColor = dot.CGColor;
+    self.statusLabel.stringValue = self.statusText ?: @"";
+
+    NSString *network = [self networkURLString];
+    NSString *local = self.port > 0 ? self.localURL.absoluteString : nil;
+    if (network) {
+        self.qrImageView.image = [self qrImageForString:network pointSize:176];
+        self.qrHintLabel.stringValue = @"Scan with your phone or tablet camera. Both devices need to be on the same Wi-Fi.";
+        self.networkURLLabel.attributedStringValue = LCLink(network);
+    } else {
+        self.qrImageView.image = nil;
+        self.qrHintLabel.stringValue = running ? @"No network address found. Connect this Mac to Wi-Fi." : @"";
+        self.networkURLLabel.stringValue = @"—";
+    }
+    if (local) self.localURLLabel.attributedStringValue = LCLink(local);
+    else self.localURLLabel.stringValue = @"—";
+    self.networkCopyButton.enabled = network != nil;
+    self.localCopyButton.enabled = local != nil;
+}
+
+- (void)togglePopover:(id)sender {
+    if (self.popover.shown) { [self.popover close]; return; }
+    [self refreshPopover]; // Wi-Fi address can change between openings
+    [self.popover showRelativeToRect:self.statusItem.button.bounds ofView:self.statusItem.button preferredEdge:NSRectEdgeMinY];
+    [self.popover.contentViewController.view.window makeKeyWindow]; // so outside clicks dismiss it
+}
+
+- (void)showSettingsMenu:(NSButton *)sender {
+    BOOL windowShown = self.window.isVisible && !self.window.isMiniaturized;
+    NSMenu *menu = [[NSMenu alloc] initWithTitle:@"Settings"];
+    NSMenuItem *toggle = [[NSMenuItem alloc] initWithTitle:windowShown ? @"Hide LiveControl Window" : @"Show LiveControl Window" action:@selector(toggleWindow) keyEquivalent:@""];
+    toggle.image = [NSImage imageWithSystemSymbolName:windowShown ? @"eye.slash" : @"eye" accessibilityDescription:nil];
+    NSMenuItem *quit = [[NSMenuItem alloc] initWithTitle:@"Quit LiveControl" action:@selector(quit) keyEquivalent:@""];
+    quit.image = [NSImage imageWithSystemSymbolName:@"power" accessibilityDescription:nil];
+    toggle.target = self; quit.target = self;
+    [menu addItem:toggle];
     [menu addItem:[NSMenuItem separatorItem]];
-    [menu addItem:[[NSMenuItem alloc] initWithTitle:@"Open in Browser" action:@selector(openInBrowser) keyEquivalent:@"b"]];
-    self.networkMenuItem = [[NSMenuItem alloc] initWithTitle:@"Copy phone / tablet address" action:@selector(copyNetworkAddress) keyEquivalent:@""];
-    [menu addItem:self.networkMenuItem];
-    [menu addItem:[[NSMenuItem alloc] initWithTitle:@"Show QR Code for Phone / Tablet…" action:@selector(showQRCode) keyEquivalent:@"r"]];
-    [menu addItem:[NSMenuItem separatorItem]];
-    [menu addItem:[[NSMenuItem alloc] initWithTitle:@"Quit LiveControl" action:@selector(quit) keyEquivalent:@"q"]];
-    for (NSMenuItem *item in menu.itemArray) item.target = self;
-    self.statusItem.menu = menu;
+    [menu addItem:quit];
+    [menu popUpMenuPositioningItem:nil atLocation:NSMakePoint(0, sender.bounds.size.height + 4) inView:sender];
+}
+
+- (void)flashCopied:(NSButton *)button {
+    button.image = [NSImage imageWithSystemSymbolName:@"checkmark" accessibilityDescription:@"Copied"];
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        button.image = [NSImage imageWithSystemSymbolName:@"doc.on.doc" accessibilityDescription:@"Copy"];
+    });
+}
+
+- (void)copyString:(NSString *)string {
+    [NSPasteboard.generalPasteboard clearContents];
+    [NSPasteboard.generalPasteboard setString:string forType:NSPasteboardTypeString];
+}
+
+- (void)copyNetworkAddress:(id)sender {
+    NSString *url = [self networkURLString];
+    if (!url) return;
+    [self copyString:url];
+    [self flashCopied:self.networkCopyButton];
+}
+
+- (void)copyLocalAddress:(id)sender {
+    if (self.port <= 0) return;
+    [self copyString:self.localURL.absoluteString];
+    [self flashCopied:self.localCopyButton];
 }
 
 - (void)startServer {
@@ -84,7 +278,7 @@
     self.portFile = [self.dataDirectory URLByAppendingPathComponent:@"server.port"];
     NSError *error = nil;
     [NSFileManager.defaultManager createDirectoryAtURL:self.dataDirectory withIntermediateDirectories:YES attributes:nil error:&error];
-    if (error) { self.statusMenuItem.title = @"Could not start LiveControl"; return; }
+    if (error) { [self setStatus:@"Could not start LiveControl" failed:YES]; return; }
     [NSFileManager.defaultManager removeItemAtURL:self.portFile error:nil];
     self.serverTask = [[NSTask alloc] init];
     self.serverTask.executableURL = node;
@@ -100,28 +294,40 @@
     self.serverTask.standardError = nullOutput;
     __weak typeof(self) weakSelf = self;
     self.serverTask.terminationHandler = ^(NSTask *task) {
-        dispatch_async(dispatch_get_main_queue(), ^{ weakSelf.startupTimer = nil; weakSelf.statusMenuItem.title = task.terminationStatus == 0 ? @"LiveControl is stopped" : @"LiveControl failed to start"; });
+        dispatch_async(dispatch_get_main_queue(), ^{ weakSelf.startupTimer = nil; [weakSelf setStatus:task.terminationStatus == 0 ? @"LiveControl is stopped" : @"LiveControl failed to start" failed:YES]; });
     };
-    if (![self.serverTask launchAndReturnError:&error]) { self.statusMenuItem.title = @"Could not start LiveControl"; return; }
+    if (![self.serverTask launchAndReturnError:&error]) { [self setStatus:@"Could not start LiveControl" failed:YES]; return; }
     self.startupTimer = [NSTimer scheduledTimerWithTimeInterval:0.4 target:self selector:@selector(checkServerReady) userInfo:nil repeats:YES];
 }
 
 - (void)checkServerReady {
-    if (!self.serverTask.running) { self.statusMenuItem.title = @"LiveControl failed to start"; [self.startupTimer invalidate]; self.startupTimer = nil; return; }
+    if (!self.serverTask.running) { [self setStatus:@"LiveControl failed to start" failed:YES]; [self.startupTimer invalidate]; self.startupTimer = nil; return; }
     NSString *value = [NSString stringWithContentsOfURL:self.portFile encoding:NSUTF8StringEncoding error:nil];
     NSInteger parsedPort = value.integerValue;
     if (parsedPort <= 0) return;
     self.port = parsedPort;
     [self.startupTimer invalidate]; self.startupTimer = nil;
-    self.statusMenuItem.title = @"LiveControl is running";
-    NSString *host = [self localIPv4Address] ?: @"localhost";
-    self.networkMenuItem.title = [NSString stringWithFormat:@"Copy phone / tablet address (%@:%ld)", host, (long)self.port];
+    [self setStatus:@"LiveControl is Running!" failed:NO];
     [self.webView loadRequest:[NSURLRequest requestWithURL:self.localURL]];
 }
 
+- (void)setStatus:(NSString *)text failed:(BOOL)failed {
+    self.statusText = text;
+    self.serverFailed = failed;
+    [self refreshPopover];
+}
+
 - (NSURL *)localURL { return [NSURL URLWithString:[NSString stringWithFormat:@"http://127.0.0.1:%ld", (long)self.port]]; }
-- (void)showWindow { [self.window makeKeyAndOrderFront:nil]; [NSApp activateIgnoringOtherApps:YES]; }
-- (void)openInBrowser { if (self.port > 0) [NSWorkspace.sharedWorkspace openURL:self.localURL]; }
+- (void)showWindow {
+    if (self.window.isMiniaturized) [self.window deminiaturize:nil];
+    [self.window makeKeyAndOrderFront:nil];
+    [NSApp activateIgnoringOtherApps:YES];
+}
+- (void)hideWindow { [self.window orderOut:nil]; }
+- (void)toggleWindow {
+    [self.popover close];
+    if (self.window.isVisible && !self.window.isMiniaturized) [self hideWindow]; else [self showWindow];
+}
 
 - (NSString *)localIPv4Address {
     struct ifaddrs *interfaces = NULL;
@@ -137,15 +343,6 @@
     }
     freeifaddrs(interfaces);
     return address ?: fallback;
-}
-
-- (void)copyNetworkAddress {
-    if (self.port <= 0) return;
-    NSString *host = [self localIPv4Address] ?: @"localhost";
-    NSString *url = [NSString stringWithFormat:@"http://%@:%ld", host, (long)self.port];
-    [NSPasteboard.generalPasteboard clearContents];
-    [NSPasteboard.generalPasteboard setString:url forType:NSPasteboardTypeString];
-    self.statusMenuItem.title = @"Phone / tablet address copied";
 }
 
 /* ── QR code for quick device connection ─────────────────────────────────── */
@@ -172,65 +369,6 @@
     NSImage *image = [[NSImage alloc] initWithCGImage:cgImage size:NSMakeSize(scaled.extent.size.width / 2.0, scaled.extent.size.height / 2.0)];
     CGImageRelease(cgImage);
     return image;
-}
-
-- (void)configureQRWindow {
-    self.qrWindow = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 340, 430)
-        styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
-        backing:NSBackingStoreBuffered defer:NO];
-    self.qrWindow.title = @"Connect a Phone or Tablet";
-    self.qrWindow.releasedWhenClosed = NO;
-    NSView *content = self.qrWindow.contentView;
-
-    NSTextField *intro = [NSTextField wrappingLabelWithString:@"Scan with your phone or tablet camera. Both devices need to be on the same Wi-Fi network."];
-    intro.frame = NSMakeRect(24, 372, 292, 40);
-    intro.alignment = NSTextAlignmentCenter;
-    intro.font = [NSFont systemFontOfSize:12];
-    intro.textColor = NSColor.secondaryLabelColor;
-    [content addSubview:intro];
-
-    // QR codes need a light background and quiet zone to scan reliably, even in Dark Mode.
-    NSView *frame = [[NSView alloc] initWithFrame:NSMakeRect(40, 108, 260, 260)];
-    frame.wantsLayer = YES;
-    frame.layer.backgroundColor = NSColor.whiteColor.CGColor;
-    frame.layer.cornerRadius = 10;
-    [content addSubview:frame];
-
-    self.qrImageView = [[NSImageView alloc] initWithFrame:NSMakeRect(16, 16, 228, 228)];
-    self.qrImageView.imageScaling = NSImageScaleProportionallyUpOrDown;
-    [frame addSubview:self.qrImageView];
-
-    self.qrURLLabel = [NSTextField wrappingLabelWithString:@""];
-    self.qrURLLabel.frame = NSMakeRect(20, 62, 300, 36);
-    self.qrURLLabel.alignment = NSTextAlignmentCenter;
-    self.qrURLLabel.selectable = YES;
-    self.qrURLLabel.font = [NSFont monospacedSystemFontOfSize:12 weight:NSFontWeightRegular];
-    [content addSubview:self.qrURLLabel];
-
-    NSButton *copy = [NSButton buttonWithTitle:@"Copy Address" target:self action:@selector(copyNetworkAddress)];
-    copy.frame = NSMakeRect(40, 20, 125, 28);
-    [content addSubview:copy];
-    NSButton *done = [NSButton buttonWithTitle:@"Done" target:self.qrWindow action:@selector(performClose:)];
-    done.frame = NSMakeRect(175, 20, 125, 28);
-    done.keyEquivalent = @"\r";
-    [content addSubview:done];
-}
-
-- (void)showQRCode {
-    if (self.port <= 0) return;
-    if (!self.qrWindow) [self configureQRWindow];
-    // Rebuild each time: the Mac's Wi-Fi address can change between openings.
-    NSString *url = [self networkURLString];
-    if (url) {
-        self.qrImageView.image = [self qrImageForString:url pointSize:228];
-        self.qrURLLabel.stringValue = url;
-    } else {
-        self.qrImageView.image = nil;
-        self.qrURLLabel.stringValue = @"No network address found. Connect this Mac to Wi-Fi.";
-    }
-    [self.qrWindow center];
-    [self.qrWindow makeKeyAndOrderFront:nil];
-    [NSApp activateIgnoringOtherApps:YES];
 }
 
 - (void)quit { [NSApp terminate:nil]; }

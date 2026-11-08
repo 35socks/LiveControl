@@ -17,6 +17,17 @@ cp -R "$ROOT/node_modules" "$RESOURCES/LiveControl/node_modules"
 cp "$(command -v node)" "$RESOURCES/node"
 chmod +x "$RESOURCES/node"
 
+# App icon (Dock / Finder) + menu bar glyph
+cp "$ROOT/icon.png" "$RESOURCES/icon.png"
+cp "$ROOT/menubar-icon.png" "$RESOURCES/menubar-icon.png"
+ICONSET="$(mktemp -d)/AppIcon.iconset"
+mkdir -p "$ICONSET"
+for size in 16 32 128 256 512; do
+  sips -z $size $size "$ROOT/icon.png" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+  sips -z $((size * 2)) $((size * 2)) "$ROOT/icon.png" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "$ICONSET" -o "$RESOURCES/AppIcon.icns"
+
 clang -fobjc-arc -fmodules -fmodules-cache-path=/private/tmp/livecontrol-module-cache -mmacosx-version-min=13.0 \
   -framework AppKit -framework WebKit -framework CoreImage \
   "$ROOT/LiveControlApp.m" -o "$CONTENTS/MacOS/LiveControl"
@@ -27,6 +38,7 @@ cat > "$CONTENTS/Info.plist" <<'PLIST'
 <plist version="1.0"><dict>
   <key>CFBundleExecutable</key><string>LiveControl</string>
   <key>CFBundleIdentifier</key><string>com.livecontrol.app</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundleName</key><string>LiveControl</string>
   <key>CFBundleDisplayName</key><string>LiveControl</string>
   <key>CFBundlePackageType</key><string>APPL</string>

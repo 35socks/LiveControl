@@ -1,6 +1,6 @@
 {
   "name": "livecontrol",
-  "version": "1.2.0",
+  "version": "2.1.4",
   "description": "Free self-hosted AbleSet clone — control Ableton Live from any device",
   "main": "server.js",
   "scripts": {

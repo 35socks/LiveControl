@@ -23,7 +23,7 @@ A free, open source app to control Ableton Live from any device on your local ne
 
 ### macOS app
 
-Open `LiveControl.app` to run LiveControl from the menu bar. Choose **Show LiveControl** from its menu bar icon to open the controls. The app starts and stops its local Ableton bridge automatically; choose **Show QR Code for Phone / Tablet…** to scan it into a phone or tablet on your Wi-Fi, or **Copy phone / tablet address** to share the link another way. Setlist notes, colors, and ordering are stored in `~/Library/Application Support/LiveControl`.
+Open `LiveControl.app` to run LiveControl from the menu bar. Click the **LC** menu bar icon to see that LiveControl is running, scan the QR code to open it on a phone or tablet on your Wi-Fi, or copy the phone / tablet and local URLs. The gear in that panel lets you show/hide the LiveControl window or quit. The app starts and stops its local Ableton bridge automatically. Setlist notes, colors, and ordering are stored in `~/Library/Application Support/LiveControl`.
 
 The app bundle includes Node.js and all server dependencies. You do not need to use Terminal or install Node.js. Ableton Live must have the **AbletonJS** control surface enabled under **Settings → Link, Tempo & MIDI → Control Surface**. The Remote Script is bundled inside the app at `Contents/Resources/LiveControl/node_modules/ableton-js/midi-script`; copy its `AbletonJS` folder into Ableton's `User Library/Remote Scripts` folder if it is not already installed, then restart Live.
 
