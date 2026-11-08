@@ -8,15 +8,26 @@ A free, open source app to control Ableton Live from any device on your local ne
 - ▶️ **Transport** — play, stop, continue, next/prev cue
 - 🔀 **Song jumping** — tap any song to jump to it in Ableton
 - 📋 **Sections** — expand songs to see and jump to sub-sections
-- 🛑 **Auto-stop markers** — `[STOP]` cue points automatically pause playback
+- 🛑 **Song end markers** — `[STOP]` ends the song, stops playback, and parks the playhead on the next song so Play starts it; the previous section runs up to that marker
+- 🔁 **Section loops** — use the loop button or add `+LOOP` / `+LOOPFULL` to a section cue; LiveControl draws and enables Ableton's own loop brackets
+- 🎤 **Performance mode** — a large, second-device-friendly now-playing view with shared loop feedback
 - 🎨 **Song colors** — color-code your setlist
 - 📝 **Song notes** — add notes, chords, or instructions per song
-- ↕️ **Reorder** — drag-and-drop setlist order (without touching Ableton)
+- ↕️ **Reorder** — drag setlist songs with a mouse or touch; order survives reloads, including duplicate titles
 - 🔇 **Track mute/solo** — control any track from the Tracks tab
 - ⌨️ **Keyboard shortcuts** — Space (play/stop), ←→ (prev/next cue)
+- 📷 **QR device syncing** — scan a QR code (QR button in the header, or the Mac app's menu bar) to open LiveControl on a phone or tablet
 - 📱 **Fully responsive** — works great on iPhone, iPad, and desktop
 
 ## Setup
+
+### macOS app
+
+Open `LiveControl.app` to run LiveControl from the menu bar. Choose **Show LiveControl** from its menu bar icon to open the controls. The app starts and stops its local Ableton bridge automatically; choose **Show QR Code for Phone / Tablet…** to scan it into a phone or tablet on your Wi-Fi, or **Copy phone / tablet address** to share the link another way. Setlist notes, colors, and ordering are stored in `~/Library/Application Support/LiveControl`.
+
+The app bundle includes Node.js and all server dependencies. You do not need to use Terminal or install Node.js. Ableton Live must have the **AbletonJS** control surface enabled under **Settings → Link, Tempo & MIDI → Control Surface**. The Remote Script is bundled inside the app at `Contents/Resources/LiveControl/node_modules/ableton-js/midi-script`; copy its `AbletonJS` folder into Ableton's `User Library/Remote Scripts` folder if it is not already installed, then restart Live.
+
+To rebuild the Mac app from this source project, run `npm install` and `npm run build:app`.
 
 ### 1. Install the MIDI Remote Script
 
@@ -65,22 +76,26 @@ LiveControl reads cue point names from your Ableton arrangement view:
 | `Song Title` | Creates a song entry |
 | `[Song Title]` | Creates a song entry (bracket notation) |
 | `> Verse` | Section within the current song |
+| `> Chorus +LOOP` | Loops from this section cue to the next cue |
+| `> Chorus +LOOPFULL` | Marks a full section loop |
 | `> Chorus` | Another section |
 | `[NEXTMARKER]` | Real starting point of the song — jumping to the song jumps here instead, skipping lead-in silence |
-| `[STOP]` or `--- STOP ---` | Auto-stop marker (pauses playback) |
+| `[STOP]` or `--- STOP ---` | End of the song; playback stops at this marker |
 | `// comment` | Ignored |
 
 **Example arrangement:**
 ```
-0:00  Intro
-0:08  [NEXTMARKER]      ← song actually starts here; jumping skips the 8s of lead-in silence
-1:30  > Verse 1
-2:30  > Chorus
-4:00  [STOP]
-4:05  Second Song
-4:05  > Drop
-6:00  [STOP]
+1.1.1  Intro
+3.1.1  [NEXTMARKER]      ← song actually starts here; jumping skips the lead-in
+33.1.1 > Verse 1
+65.1.1 > Chorus +LOOP
+97.1.1 [STOP]
+97.1.1 Second Song
+97.1.1 > Drop
+161.1.1 [STOP]
 ```
+
+Ableton reports locator and playhead positions in beats. LiveControl converts them to minutes and seconds using the current tempo.
 
 After editing cue points in Ableton, click the **↺** button in LiveControl to reload.
 
@@ -95,6 +110,8 @@ All endpoints return `{ ok: true, ... }` or `{ ok: false, error: "..." }`.
 |---|---|---|---|
 | POST | `/api/play` | — | Start playback |
 | POST | `/api/stop` | — | Stop playback |
+| GET | `/api/connect` | — | LAN addresses other devices can use |
+| GET | `/api/connect/qr.svg?i=0` | — | QR code (SVG) for a LAN address |
 | POST | `/api/continue` | — | Continue from current position |
 | POST | `/api/next-cue` | — | Jump to next cue point |
 | POST | `/api/prev-cue` | — | Jump to previous cue point |
@@ -107,6 +124,7 @@ All endpoints return `{ ok: true, ... }` or `{ ok: false, error: "..." }`.
 | POST | `/api/reload` | — | Re-read cue points from Ableton |
 | POST | `/api/jump/song/:id` | — | Jump to song |
 | POST | `/api/jump/section/:songId/:sectionId` | — | Jump to section |
+| POST | `/api/loop` | `{ songId, sectionId }` or `{ active: false }` | Enable or clear the shared loop |
 | POST | `/api/setlist/reorder` | `{ order: [id, ...] }` | Reorder songs |
 
 ### Song metadata
