@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>Lyrics · LiveControl</title>
+  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="lyrics.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet" />
+</head>
+<body class="lyrics-body">
+  <div class="lyrics-page" id="lyrics-page">
+    <div class="lyrics-bar">
+      <div class="lyrics-bar-left">
+        <button class="lyrics-btn" id="lock-btn" type="button" title="Lock: ignore taps on lyrics" aria-pressed="false">
+          <svg viewBox="0 0 24 24" class="i-unlocked"><path d="M12 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm6-9h-1V6a5 5 0 0 0-9.58-2h2.1A3 3 0 0 1 15 6v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zm0 12H6V10h12v10z"/></svg>
+          <svg viewBox="0 0 24 24" class="i-locked hidden"><path d="M12 17a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm6-9h-1V6a5 5 0 0 0-10 0v2H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V10a2 2 0 0 0-2-2zM9 6a3 3 0 0 1 6 0v2H9V6zm9 14H6V10h12v10z"/></svg>
+        </button>
+        <div class="lyrics-pop-wrap">
+          <button class="lyrics-btn" id="settings-btn" type="button" title="Text size" aria-expanded="false">
+            <svg viewBox="0 0 24 24"><path d="M9 4v3h5v12h3V7h5V4H9zm-6 8h3v7h3v-7h3V9H3v3z"/></svg>
+          </button>
+          <div class="lyrics-pop hidden" id="settings-pop">
+            <label for="size-range">Text size</label>
+            <input id="size-range" type="range" min="60" max="220" step="5" value="100" />
+          </div>
+        </div>
+        <button class="lyrics-btn" id="play-btn" type="button" title="Play / Stop">
+          <svg viewBox="0 0 24 24" class="i-play"><path d="M8 5v14l11-7z"/></svg>
+          <svg viewBox="0 0 24 24" class="i-stop hidden"><rect x="6" y="6" width="12" height="12"/></svg>
+        </button>
+        <select class="lyrics-select hidden" id="track-select" aria-label="Lyrics track"></select>
+      </div>
+      <div class="lyrics-bar-right">
+        <a class="lyrics-btn" href="/" title="Back to LiveControl" aria-label="Close lyrics">
+          <svg viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </a>
+      </div>
+    </div>
+
+    <div class="lyrics-viewport" id="lyrics-viewport">
+      <div class="lyrics-inner" id="lyrics-inner"></div>
+      <div class="lyrics-fade lyrics-fade--top"></div>
+      <div class="lyrics-fade lyrics-fade--bottom"></div>
+    </div>
+    <div class="lyrics-message hidden" id="lyrics-message"></div>
+  </div>
+
+  <script src="lyrics.js"></script>
+</body>
+</html>

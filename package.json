@@ -1,12 +1,13 @@
 {
   "name": "livecontrol",
-  "version": "2.1.4",
+  "version": "2.2.0",
   "description": "Free self-hosted AbleSet clone — control Ableton Live from any device",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
-    "build:app": "zsh ./build_app.sh"
+    "build:app": "zsh ./build_app.sh",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "ableton-js": "^4.0.4",

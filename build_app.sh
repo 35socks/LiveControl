@@ -10,7 +10,7 @@ rm -rf "$OUT"
 mkdir -p "$RESOURCES/LiveControl"
 mkdir -p "$CONTENTS/MacOS"
 
-cp "$ROOT/server.js" "$ROOT/ableton.js" "$ROOT/setlist.js" "$ROOT/storage.js" "$ROOT/qr.js" \
+cp "$ROOT/server.js" "$ROOT/ableton.js" "$ROOT/setlist.js" "$ROOT/lyrics-parser.js" "$ROOT/storage.js" "$ROOT/qr.js" \
    "$ROOT/package.json" "$ROOT/package-lock.json" "$ROOT/setlist-meta.json" "$RESOURCES/LiveControl/"
 cp -R "$ROOT/public" "$RESOURCES/LiveControl/public"
 cp -R "$ROOT/node_modules" "$RESOURCES/LiveControl/node_modules"

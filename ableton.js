@@ -5,12 +5,14 @@
 import { Ableton } from "ableton-js";
 import { parseCuePoints, mergeMetadata, findActiveSong, findActiveSection } from "./setlist.js";
 import { loadMeta, clearCache, setSetting } from "./storage.js";
+import { buildLyricsPayload } from "./lyrics-parser.js";
 
 const BROADCAST_INTERVAL_MS = 100;
 
 export class AbletonBridge {
-  constructor(onStateChange) {
+  constructor(onStateChange, onLyricsChange = () => {}) {
     this.onStateChange = onStateChange;
+    this.onLyricsChange = onLyricsChange;
     this.ableton = new Ableton({
       clientPortFile: "ableton-js-client.port",
       serverPortFile: "ableton-js-server.port",
@@ -25,6 +27,7 @@ export class AbletonBridge {
     this.setlist = [];
     this.rawCuePoints = [];
     this.lyricTracks = [];
+    this.lyrics = { tracks: [] };
     this.guideTracks = [];
     this._jumpGuideCueId = null;
     this.connected = false;
@@ -41,7 +44,6 @@ export class AbletonBridge {
       activeSongIndex: -1,
       activeSectionIndex: -1,
       setlist: [],
-      lyrics: [],
       jumpMode: this.jumpMode,
       pendingJump: null,
       stopAfterSong: this.stopAfterSong,
@@ -115,7 +117,6 @@ export class AbletonBridge {
       this.state.isPlaying    = isPlaying;
       this.state.projectName  = projectName;
       this.state.setlist      = this._serializeSetlist();
-      this.state.lyrics       = this._serializeLyrics();
       this._currentBeatTime   = currentTime;
       this.state.currentBeat  = currentTime;
       this.state.signatureNumerator   = sigNum;
@@ -144,7 +145,6 @@ export class AbletonBridge {
         this.ableton.song.addListener("tempo", (val) => {
           this.state.tempo = val;
           this.state.setlist = this._serializeSetlist();
-          this.state.lyrics = this._serializeLyrics();
           this.state.currentTime = this._currentBeatTime * this._secondsPerBeat();
           this._updateActivePosition(this._currentBeatTime);
           this._broadcastNow();
@@ -204,11 +204,12 @@ export class AbletonBridge {
         const clips = await track.get("arrangement_clips").catch(() => []);
         if (isLyrics) {
           this.lyricTracks.push({
-            name: trackName.replace(/\s*\+LYRICS\b/i, "").trim(),
-            lines: clips.map((clip) => clip.raw || {})
-              .filter((raw) => Number.isFinite(Number(raw.start_time)) && String(raw.name || "").trim())
-              .map((raw) => ({ time: Number(raw.start_time), text: String(raw.name).trim() }))
-              .sort((a, b) => a.time - b.time),
+            // Keep the full track name; lyrics-parser reads its [flags].
+            name: trackName,
+            clips: clips.map((clip) => clip.raw || {}).map((raw) => ({
+              start: Number(raw.start_time), end: Number(raw.end_time),
+              name: raw.name, color: raw.color,
+            })),
           });
         }
         if (!isSections) continue;
@@ -230,12 +231,13 @@ export class AbletonBridge {
       this.state.setlistName = typeof meta.settings?.setlistName === "string" ? meta.settings.setlistName : "";
       this.setlist = mergeMetadata(parsed, meta);
       this.state.setlist = this._serializeSetlist();
-      this.state.lyrics = this._serializeLyrics();
+      this._buildLyrics();
       console.log(`[ableton] Loaded ${this.setlist.length} songs`);
     } catch (err) {
       console.error("[ableton] Failed to load setlist:", err.message);
       this.setlist = [];
       this.state.setlist = [];
+      this._buildLyrics();
     }
   }
 
@@ -244,12 +246,19 @@ export class AbletonBridge {
     return Number.isFinite(tempo) && tempo > 0 ? 60 / tempo : 0.5;
   }
 
-  _serializeLyrics() {
-    const scale = this._secondsPerBeat();
-    return this.lyricTracks.map((track) => ({
-      name: track.name,
-      lines: track.lines.map((line) => ({ time: line.time * scale, text: line.text })),
-    }));
+  // Lyrics stay in beats and travel separately from the 10 Hz state tick;
+  // browsers sync them against state.currentBeat.
+  _buildLyrics() {
+    try {
+      this.lyrics = buildLyricsPayload(this.lyricTracks, this.setlist.map((song) => ({
+        id: song.id, name: song.name, time: song.time, endTime: song.endTime,
+        sections: song.sections.map((s) => ({ id: s.id, name: s.name, time: s.time })),
+      })));
+    } catch (err) {
+      console.error("[ableton] Failed to build lyrics:", err.message);
+      this.lyrics = { tracks: [] };
+    }
+    this.onLyricsChange(this.lyrics);
   }
 
   _serializeSetlist() {
@@ -514,6 +523,13 @@ export class AbletonBridge {
     if (section?.cueObject && !immediate) await section.cueObject.jump();
     else if (Number.isFinite(section?.time)) await this.ableton.song.set("current_song_time", section.time);
     else throw new Error("Section not found: " + sectionId);
+  }
+
+  // Tap-a-lyric-line: move the playhead straight to a beat position.
+  async jumpToBeat(beat) {
+    const value = Number(beat);
+    if (!Number.isFinite(value) || value < 0) throw new Error("Invalid beat");
+    await this.ableton.song.set("current_song_time", value);
   }
 
   async setStopAfterSong(enabled) {

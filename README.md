@@ -11,6 +11,7 @@ A free, open source app to control Ableton Live from any device on your local ne
 - 🛑 **Song end markers** — `[STOP]` ends the song, stops playback, and parks the playhead on the next song so Play starts it; the previous section runs up to that marker
 - 🔁 **Section loops** — use the loop button or add `+LOOP` / `+LOOPFULL` to a section cue; LiveControl draws and enables Ableton's own loop brackets
 - 🎤 **Performance mode** — a large, second-device-friendly now-playing view with shared loop feedback
+- 🎤 **Synchronized lyrics** — a separate `/lyrics` page that follows the playhead (see below)
 - 🎨 **Song colors** — color-code your setlist
 - 📝 **Song notes** — add notes, chords, or instructions per song
 - ↕️ **Reorder** — drag setlist songs with a mouse or touch; order survives reloads, including duplicate titles
@@ -101,6 +102,21 @@ After editing cue points in Ableton, click the **↺** button in LiveControl to 
 
 ---
 
+## Synchronized lyrics
+
+Open **Lyrics** in the header (or go to `http://[your-ip]:3000/lyrics` on any device). Create a MIDI track named `Vocals +LYRICS` with one clip per lyric line; the clip name is the text and its start/end define when the line is active. Press ↺ after editing clips.
+
+- Lines, section headers (from `>` cues / `+SECTIONS` clips) and the song title scroll with playback; long gaps show a 4-dot countdown.
+- Tap a line to jump there, a section header to jump to the section, the title to jump to the song. The lock button disables taps.
+- Several `+LYRICS` tracks: pick one from the selector (remembered per device), or open `/lyrics?track=Lead%20Vocals`.
+- Track-name flags: `[blue]` (any AbleSet colour) `[large|small|tiny]` `[left|center]` `[mono]` `[nofade]` `[nozoom]` `[nosections]` `[linemarker]` `[progress]` `[top]` / `[top+2]` `[+150ms]` / `[-200ms]` / `[+1n]` (delay, only while playing) `+CLIPCOLORS` / `+CC`
+- Line attributes at the start of a clip name: `[blue]`, `[large]`, `[left]`, `[mono]`, `[<]` / `[>]` (force a line before/after a section header the clip crosses). Use `**bold**`, `*italic*`, and `\` for a line break within one clip.
+- Not yet supported: ChordPro chords/transposition, images, `[allsongs]`.
+
+Tests: `npm test`.
+
+---
+
 ## API Reference
 
 All endpoints return `{ ok: true, ... }` or `{ ok: false, error: "..." }`.
@@ -124,6 +140,7 @@ All endpoints return `{ ok: true, ... }` or `{ ok: false, error: "..." }`.
 | POST | `/api/reload` | — | Re-read cue points from Ableton |
 | POST | `/api/jump/song/:id` | — | Jump to song |
 | POST | `/api/jump/section/:songId/:sectionId` | — | Jump to section |
+| POST | `/api/jump/time` | `{ beat: 32 }` | Move the playhead to a beat position (used by lyrics taps) |
 | POST | `/api/loop` | `{ songId, sectionId }` or `{ active: false }` | Enable or clear the shared loop |
 | POST | `/api/setlist/reorder` | `{ order: [id, ...] }` | Reorder songs |
 
@@ -155,7 +172,7 @@ ableton-js MIDI script
    ↕
 Node.js server (server.js)
    ├── Express HTTP → serves static files + REST API
-   └── WebSocket → real-time state push to browsers
+   └── WebSocket → real-time state push (`state`) and lyrics (`lyrics`, sent on connect/reload)
 
 Browser (any device on local network)
    ├── Fetches UI from http://[server-ip]:3000

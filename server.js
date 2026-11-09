@@ -27,6 +27,8 @@ app.use((err, req, res, next) => {
   next(err);
 });
 app.use(express.static(path.join(__dirname, "public")));
+// Synchronized lyrics live on their own page so they can be opened on any device.
+app.get("/lyrics", (req, res) => res.sendFile(path.join(__dirname, "public", "lyrics.html")));
 
 const server = createServer(app);
 const wss    = new WebSocketServer({ server });
@@ -38,13 +40,15 @@ function broadcast(data) {
   }
 }
 
-const bridge = new AbletonBridge((state) => {
-  broadcast({ type: "state", payload: state });
-});
+const bridge = new AbletonBridge(
+  (state) => broadcast({ type: "state", payload: state }),
+  (lyrics) => broadcast({ type: "lyrics", payload: lyrics }),
+);
 
 wss.on("connection", (ws) => {
   console.log("[ws] Client connected");
   ws.send(JSON.stringify({ type: "state", payload: bridge.state }));
+  ws.send(JSON.stringify({ type: "lyrics", payload: bridge.lyrics }));
   ws.on("close", () => console.log("[ws] Client disconnected"));
   ws.on("error", (e) => console.error("[ws] Error:", e.message));
 });
@@ -117,6 +121,13 @@ app.post("/api/jump/section/:songId/:sectionId", (req, res) =>
     ok(res);
   })
 );
+
+app.post("/api/jump/time", (req, res) => wrap(res, async () => {
+  const beat = Number(req.body.beat);
+  if (!Number.isFinite(beat)) return fail(res, "beat required");
+  await bridge.jumpToBeat(beat);
+  ok(res);
+}));
 
 app.post("/api/jump-mode", (req, res) => wrap(res, async () => {
   await bridge.setJumpMode(req.body.mode);

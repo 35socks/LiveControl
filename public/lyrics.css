@@ -1,0 +1,115 @@
+/* lyrics.css — the standalone /lyrics page (theme variables come from style.css) */
+
+.lyrics-body { background: var(--bg); color: var(--text); overflow: hidden; }
+.lyrics-page {
+  position: fixed; inset: 0; display: flex; flex-direction: column;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  --scale: 1;
+  font-family: var(--font-sans);
+}
+
+/* ── Top bar ───────────────────────────────────────────────────────────── */
+.lyrics-bar {
+  position: absolute; z-index: 5; top: 0; left: 0; right: 0;
+  display: flex; justify-content: space-between; align-items: center; gap: 8px;
+  padding: 10px 12px; pointer-events: none;
+}
+.lyrics-bar-left, .lyrics-bar-right { display: flex; align-items: center; gap: 8px; pointer-events: auto; }
+.lyrics-btn, .lyrics-select {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 38px; height: 38px; padding: 0 10px; border: 1px solid var(--border2); border-radius: 9px;
+  background: color-mix(in srgb, var(--bg2) 88%, transparent); color: var(--text2);
+  font: 600 13px var(--font-sans); text-decoration: none; cursor: pointer;
+  backdrop-filter: blur(6px);
+}
+.lyrics-btn svg { width: 18px; height: 18px; fill: currentColor; }
+.lyrics-btn:hover, .lyrics-select:hover { color: var(--text); border-color: var(--accent); }
+.lyrics-btn[aria-pressed="true"] { color: var(--text); border-color: var(--accent); background: var(--accent-dim); }
+.lyrics-pop-wrap { position: relative; }
+.lyrics-pop {
+  position: absolute; top: 46px; left: 0; width: 210px; padding: 12px 14px;
+  border: 1px solid var(--border2); border-radius: 10px; background: var(--bg2);
+  display: flex; flex-direction: column; gap: 8px; color: var(--text2); font-size: 12px;
+}
+.lyrics-pop input { width: 100%; accent-color: var(--accent); }
+
+/* ── Scrolling area ────────────────────────────────────────────────────── */
+.lyrics-viewport { position: relative; flex: 1; overflow: hidden; }
+.lyrics-inner {
+  position: absolute; left: 0; right: 0; top: 0;
+  padding: 64px clamp(16px, 5vw, 72px) 0;
+  will-change: transform;
+}
+.lyrics-inner.animate { transition: transform .55s cubic-bezier(.22,.8,.3,1); }
+.lyrics-fade { position: absolute; left: 0; right: 0; height: 22%; pointer-events: none; z-index: 2; }
+.lyrics-fade--top    { top: 0;    background: linear-gradient(to bottom, var(--bg), transparent); }
+.lyrics-fade--bottom { bottom: 0; background: linear-gradient(to top,    var(--bg), transparent); }
+.lyrics-page.nofade-page .lyrics-fade { display: none; }
+
+.lyrics-message {
+  position: absolute; inset: 0; z-index: 4; display: flex; align-items: center; justify-content: center;
+  padding: 24px; text-align: center; color: var(--text2); font-size: 18px; line-height: 1.5;
+  background: var(--bg);
+}
+
+/* ── Lines ─────────────────────────────────────────────────────────────── */
+.ly-line {
+  --c: var(--text);
+  --d: 0;
+  font-size: calc(var(--scale) * clamp(24px, 4.4vw, 58px));
+  line-height: 1.25; padding: .28em 0; text-align: center; color: var(--c);
+  position: relative; max-width: 1200px; margin: 0 auto;
+}
+.lyrics-page.left-page .ly-line { text-align: left; }
+.ly-line.align-left   { text-align: left; }
+.ly-line.align-center { text-align: center; }
+.ly-line.size-large { font-size: calc(var(--scale) * clamp(30px, 5.6vw, 76px)); }
+.ly-line.size-small { font-size: calc(var(--scale) * clamp(19px, 3.4vw, 44px)); }
+.ly-line.size-tiny  { font-size: calc(var(--scale) * clamp(15px, 2.6vw, 34px)); }
+.ly-line.mono { font-family: var(--font-mono); }
+.ly-text { display: inline-block; font-weight: 600; transition: opacity .3s, transform .3s; transform-origin: center; }
+.align-left .ly-text, .lyrics-page.left-page .ly-text { transform-origin: left center; }
+.ly-text strong { font-weight: 800; }
+.ly-text em { font-style: italic; }
+
+/* Distance from the active line drives fade + zoom (set via --d). */
+.ly-line.item .ly-text { opacity: max(.16, calc(1 - var(--d) * .28)); transform: scale(max(.82, calc(1 - var(--d) * .06))); }
+.lyrics-page.nofade-page .ly-line.item .ly-text { opacity: 1; }
+.lyrics-page.nozoom-page .ly-line.item .ly-text { transform: none; }
+.ly-line.active .ly-text { opacity: 1; transform: none; }
+.lyrics-page.linemarker-page .ly-line.active::before {
+  content: ""; position: absolute; left: -.6em; top: 50%; width: .22em; height: .22em; margin-top: -.11em;
+  border-radius: 50%; background: var(--c);
+}
+.lyrics-page.progress-page .ly-line.item::after {
+  content: ""; display: block; height: 3px; margin: .25em auto 0; max-width: 320px; border-radius: 2px;
+  background: linear-gradient(to right, var(--c) var(--progress, 0%), color-mix(in srgb, var(--c) 18%, transparent) var(--progress, 0%));
+  opacity: 0;
+}
+.lyrics-page.progress-page .ly-line.active::after { opacity: 1; }
+.ly-line.clickable { cursor: pointer; }
+
+/* ── Section / song headers ────────────────────────────────────────────── */
+.ly-section {
+  font-size: calc(var(--scale) * clamp(13px, 1.6vw, 20px)); letter-spacing: .14em; text-transform: uppercase;
+  color: var(--text3); font-family: var(--font-mono); padding: 1.1em 0 .4em; text-align: center;
+  transition: color .3s;
+}
+.lyrics-page.left-page .ly-section { text-align: left; }
+.ly-section.current { color: var(--text2); }
+.ly-section.clickable { cursor: pointer; }
+.ly-song-title { font-size: calc(var(--scale) * clamp(22px, 3.6vw, 46px)); color: var(--text); letter-spacing: .02em; text-transform: none; font-family: var(--font-sans); font-weight: 700; padding-top: .4em; }
+
+/* ── Instrumental / countdown bubbles ──────────────────────────────────── */
+.ly-spacer { display: flex; justify-content: center; gap: .6em; padding: .9em 0; }
+.lyrics-page.left-page .ly-spacer { justify-content: flex-start; }
+.ly-bubble {
+  width: calc(var(--scale) * clamp(12px, 1.7vw, 22px)); height: calc(var(--scale) * clamp(12px, 1.7vw, 22px));
+  border-radius: 50%; background: var(--text); opacity: .1;
+}
+
+@media (max-width: 600px) {
+  .lyrics-bar { padding: 8px; }
+  .lyrics-btn, .lyrics-select { height: 36px; min-width: 36px; }
+}
+.is-locked .clickable { cursor: default; }

@@ -231,25 +231,6 @@ function updatePerformanceView() {
   const section = song?.sections?.[state.activeSectionIndex];
   document.getElementById('performance-song').textContent = song?.name || 'Ready';
   document.getElementById('performance-section').textContent = section?.name || 'Waiting for section';
-  const lyrics = document.getElementById('performance-lyrics');
-  lyrics.replaceChildren();
-  for (const track of state.lyrics || []) {
-    const line = track.lines.filter(item => item.time <= state.currentTime).at(-1);
-    if (!line) continue;
-    const row = document.createElement('div');
-    row.className = 'performance-lyric-line';
-    if (track.name) {
-      const label = document.createElement('span');
-      label.className = 'performance-lyric-track';
-      label.textContent = track.name;
-      row.appendChild(label);
-    }
-    const text = document.createElement('span');
-    text.textContent = line.text;
-    row.appendChild(text);
-    lyrics.appendChild(row);
-  }
-  lyrics.classList.toggle('hidden', !lyrics.childElementCount);
   document.getElementById('performance-tempo').textContent = `${Math.round(state.tempo * 10) / 10} BPM`;
   const loop = state.loop?.active ? state.loop : null;
   const loopingHere = loop && song?.id === loop.songId && (!loop.sectionId || loop.sectionId === section?.id);

@@ -154,6 +154,7 @@ html, body {
   padding: 7px 11px; border: 1px solid var(--border2); border-radius: 7px;
   background: var(--bg2); color: var(--text2); font: 600 12px var(--font-sans); cursor: pointer;
 }
+#lyrics-link { display: inline-flex; align-items: center; text-decoration: none; }
 .view-toggle:hover, .view-toggle[aria-pressed="true"] { color: var(--text); border-color: var(--accent); }
 .logo {
   width: 32px; height: 32px;
@@ -241,9 +242,6 @@ html, body {
   font-weight: 600; line-height: 1.02; overflow-wrap: anywhere;
 }
 .performance-section { margin-top: 12px; color: var(--text2); font-size: clamp(22px, 5vw, 46px); }
-.performance-lyrics { max-width: 900px; margin: 24px auto 0; display: flex; flex-direction: column; gap: 8px; }
-.performance-lyric-line { color: var(--text); font-size: clamp(18px, 3vw, 30px); line-height: 1.35; }
-.performance-lyric-track { display: block; margin-bottom: 2px; color: var(--text3); font: 10px var(--font-mono); letter-spacing: .1em; text-transform: uppercase; }
 .performance-loop {
   margin-top: 20px; border: 1px solid rgba(34,197,94,.55); border-radius: 8px;
   padding: 9px 14px; color: #4ade80; background: rgba(34,197,94,.12);
